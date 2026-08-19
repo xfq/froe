@@ -135,4 +135,4 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the current design and source map, 
 
 ## License
 
-[Apache-2.0](./LICENSE). The package is marked `private` to prevent accidental npm publication.
+[Apache-2.0](./LICENSE).
