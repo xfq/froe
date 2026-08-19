@@ -1,0 +1,3 @@
+# Keep the agent core model-provider neutral
+
+Froe's run loop will depend on a small provider-neutral contract from its first implementation, with vendor behavior isolated in adapters. The core will exchange normalized model events while provider continuation data remains opaque to the adapter; OpenAI response types and identifiers cannot enter the run loop. The first release will include an OpenAI production adapter and a deterministic `ScriptedModel` test adapter. This makes the seam executable without pretending that test portability proves compatibility with a second vendor. The contract will expose only capabilities Froe actually needs rather than promise artificial feature parity.

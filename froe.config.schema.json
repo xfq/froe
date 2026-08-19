@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "froe configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "provider": { "const": "openai" },
+    "baseURL": { "type": "string", "format": "uri" },
+    "model": { "type": "string" },
+    "reasoning": {
+      "enum": ["none", "low", "medium", "high", "xhigh", "max"]
+    },
+    "maxTurns": { "type": "integer", "minimum": 1 },
+    "logging": { "enum": ["metadata", "full"] },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "readLines": { "type": "integer", "minimum": 1 },
+        "readBytes": { "type": "integer", "minimum": 1 },
+        "searchResults": { "type": "integer", "minimum": 1 },
+        "commandOutputBytes": { "type": "integer", "minimum": 1 },
+        "commandTimeoutMs": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "commandEnv": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    }
+  }
+}

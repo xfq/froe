@@ -1,0 +1,29 @@
+{
+  "name": "froe",
+  "version": "0.1.0",
+  "description": "An inspectable coding agent for work in a codebase.",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "froe": "./dist/cli.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
+    "test": "tsx --test test/**/*.test.ts",
+    "dev": "tsx src/cli.ts",
+    "smoke:openai": "tsx scripts/smoke-openai.ts"
+  },
+  "dependencies": {
+    "openai": "^7.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
+  }
+}
