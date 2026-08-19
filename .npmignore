@@ -1,0 +1,5 @@
+*
+!dist/
+!README.md
+!LICENSE
+!froe.config.schema.json
