@@ -1,6 +1,8 @@
 # froe
 
-froe is an inspectable coding agent for work in a codebase. A froe is a hand tool that splits wood along its grain; this agent borrows that idea for code changes: investigate the local structure, make a precise patch, and leave evidence behind.
+froe is an inspectable coding agent for work in a codebase. Here, *inspectable* means a person can reconstruct a run after the fact: which actions it requested, their effects or results, the approval decisions that applied, and why it completed, stopped, or failed. The control flow that governs those decisions is explicit in the code, and the CLI emits structured run events and records. It does not mean retaining source contents or unrestricted model text by default.
+
+A froe is a hand tool that splits wood along its grain; this agent borrows that idea for code changes: investigate the local structure, make a precise patch, and leave evidence behind.
 
 In the first release:
 
@@ -111,7 +113,7 @@ froe only edits UTF-8 text files inside the Workspace. It rejects symbolic links
 
 ## Observability and data
 
-Each CLI invocation writes a JSONL record to `$XDG_STATE_HOME/froe/runs` or `~/.local/state/froe/runs` unless `--no-log` is used. An interactive conversation records each of its bounded runs in the same file. Metadata records include action names, paths, command arguments, exit statuses, approvals, and outcomes. They omit source content, patch bodies, tool output, and model text by default; set `logging` to `full` only for local debugging.
+Each CLI invocation writes a JSONL record to `$XDG_STATE_HOME/froe/runs` or `~/.local/state/froe/runs` unless `--no-log` is used. An interactive conversation records each of its bounded runs in the same file. Metadata records let a person reconstruct the run's action sequence, safe action summaries, result status, approval reasons, and final outcome with verification. They omit source content, patch bodies, tool output, and model text by default; set `logging` to `full` only for local debugging.
 
 The OpenAI adapter sends `store: false` and retains the current CLI conversation's continuation state in memory. Conversations cannot be resumed after the process exits. See [OpenAI's data controls documentation](https://developers.openai.com/api/docs/guides/your-data#default-usage-policies-by-endpoint) for the distinction between response storage and API abuse-monitoring retention.
 

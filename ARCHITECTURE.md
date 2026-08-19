@@ -8,6 +8,8 @@ For consequential decisions and their trade-offs, see the [architecture decision
 
 Froe is a single-process TypeScript command-line coding agent. A CLI invocation either creates one bounded **run** or hosts an interactive conversation whose messages create sequential bounded runs against one user-authorized **workspace**. During a run, a model can inspect files, apply precise text changes, execute validation commands, and report a verified outcome.
 
+Inspectability is a product property: after a run, a person must be able to determine the action sequence, safe summaries of its effects or results, applicable approval decisions, and the reason for its final outcome. Metadata recording deliberately excludes source contents, patch bodies, tool output, and model text.
+
 The current implementation has a small boundary:
 
 - one task and one model provider per run, with one provider reused across the runs in an interactive conversation;
