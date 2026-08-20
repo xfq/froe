@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Froe is an inspectable coding agent for bounded work in a codebase."
+    >
+    <meta name="theme-color" content="#11100d">
+    <title>Froe: An inspectable coding agent</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="./styles.css">
+    <script src="./script.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
+
+    <header class="site-header">
+      <div class="shell header-inner">
+        <a class="brand" href="#top" aria-label="Froe home">
+          <svg class="brand-mark" viewBox="0 0 44 44" aria-hidden="true">
+            <path d="M4 8h24l12 14-12 14H4l12-14L4 8Z"></path>
+            <path d="M4 8 28 36"></path>
+          </svg>
+          <span>froe</span>
+        </a>
+
+        <nav aria-label="Primary">
+          <a href="https://github.com/xfq/froe">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <section class="hero" id="top">
+        <div class="hero-cut" aria-hidden="true"></div>
+        <div class="shell hero-grid">
+          <div class="hero-copy">
+            <h1>A coding agent<br><span>you can inspect.</span></h1>
+            <p class="hero-lede">
+              Froe makes precise changes in one workspace and leaves the evidence behind.
+            </p>
+            <div class="hero-actions">
+              <a class="button button-primary" href="#install">Install locally</a>
+              <a class="text-link" href="https://github.com/xfq/froe/blob/main/ARCHITECTURE.md">
+                Read the architecture
+                <svg viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M4 10h11M11 5l5 5-5 5"></path>
+                </svg>
+              </a>
+            </div>
+          </div>
+
+          <aside class="run-summary" aria-labelledby="run-title">
+            <p id="run-title">One Run, made clear</p>
+            <ol>
+              <li><span>Task</span><strong>One outcome</strong></li>
+              <li><span>Action</span><strong>Exact change</strong></li>
+              <li><span>Approval</span><strong>When required</strong></li>
+              <li><span>Proof</span><strong>Verified result</strong></li>
+            </ol>
+          </aside>
+        </div>
+      </section>
+
+      <section class="install-section" id="install">
+        <div class="shell install-grid">
+          <div>
+            <h2>Run it locally.</h2>
+            <p>
+              Requires Node.js 22+ and pnpm.
+            </p>
+          </div>
+
+          <div class="install-terminal">
+            <div class="terminal-heading">
+              <span>Local setup</span>
+              <button class="copy-button" type="button" data-copy-target="install-command">
+                Copy setup
+              </button>
+            </div>
+            <pre><code id="install-command">git clone https://github.com/xfq/froe.git
+cd froe
+pnpm install
+pnpm build
+pnpm add --global .
+froe --help</code></pre>
+            <p class="copy-status" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="shell footer-inner">
+        <div class="footer-brand">
+          <svg class="brand-mark" viewBox="0 0 44 44" aria-hidden="true">
+            <path d="M4 8h24l12 14-12 14H4l12-14L4 8Z"></path>
+            <path d="M4 8 28 36"></path>
+          </svg>
+        </div>
+        <div class="footer-links">
+          <a href="https://github.com/xfq/froe">GitHub</a>
+          <a href="https://github.com/xfq/froe/blob/main/README.md">Documentation</a>
+          <a href="https://github.com/xfq/froe/blob/main/LICENSE">Apache-2.0</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

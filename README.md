@@ -4,6 +4,8 @@ froe is an inspectable coding agent for work in a codebase. Here, *inspectable* 
 
 A froe is a hand tool that splits wood along its grain; this agent borrows that idea for code changes: investigate the local structure, make a precise patch, and leave evidence behind.
 
+In the project mark, the forward wedge is the tool's cutting edge, and the diagonal stroke is the cut following the grain.
+
 In the first release:
 
 - One-shot tasks and interactive conversations
@@ -123,6 +125,13 @@ The OpenAI adapter sends `store: false` and retains the current CLI conversation
 pnpm typecheck
 pnpm test
 pnpm build
+```
+
+The project website is a dependency-free static site under `site/`. Preview it
+locally from the repository root:
+
+```sh
+python3 -m http.server 8000 --directory site
 ```
 
 The suite uses a deterministic model adapter and a local fake OpenAI server; it makes no external network calls or billable API requests. On macOS it also runs local Seatbelt integration tests, including a connection attempt to a closed localhost port. `pnpm smoke:openai` is opt-in and does make a minimal API request.
