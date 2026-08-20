@@ -17,14 +17,23 @@ In the first release:
 
 ## Quick start
 
-Requires Node.js 22+ and pnpm. Command execution currently requires macOS; on other operating systems, file actions still work but `run_command` fails closed. Install dependencies, build froe, and register its command globally:
+Requires Node.js 22+. Command execution currently requires macOS; on other operating systems, file actions still work but `run_command` fails closed. Install froe globally with npm:
 
 ```sh
-pnpm install
-pnpm build
-
-pnpm add --global .
+npm install --global @xfq/froe
 froe --help
+```
+
+To try froe without installing it globally, use:
+
+```sh
+npx @xfq/froe --help
+```
+
+You can also use the installer, which checks that Node.js 22+ is available and then installs the npm package:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/xfq/froe/main/scripts/install.sh | sh
 ```
 
 Then run it from the repository you want it to work in:
@@ -120,6 +129,14 @@ Each CLI invocation writes a JSONL record to `$XDG_STATE_HOME/froe/runs` or `~/.
 The OpenAI adapter sends `store: false` and retains the current CLI conversation's continuation state in memory. Conversations cannot be resumed after the process exits. See [OpenAI's data controls documentation](https://developers.openai.com/api/docs/guides/your-data#default-usage-policies-by-endpoint) for the distinction between response storage and API abuse-monitoring retention.
 
 ## Development
+
+To contribute to froe itself, clone the repository and use pnpm:
+
+```sh
+git clone https://github.com/xfq/froe.git
+cd froe
+pnpm install
+```
 
 ```sh
 pnpm typecheck

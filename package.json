@@ -11,11 +11,18 @@
   "bin": {
     "froe": "dist/cli.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "froe.config.schema.json"
+  ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "prepack": "node scripts/clean-dist.mjs && pnpm build",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
     "test": "tsx --test test/**/*.test.ts",
     "dev": "tsx src/cli.ts",

@@ -29,14 +29,14 @@ copyButton?.addEventListener("click", async () => {
   try {
     await copyText(target.textContent.trim());
     copyButton.textContent = "Copied";
-    copyStatus.textContent = "Setup commands copied to the clipboard.";
+    copyStatus.textContent = "Install commands copied to the clipboard.";
   } catch {
     copyButton.textContent = "Copy unavailable";
-    copyStatus.textContent = "Select the setup commands and copy them manually.";
+    copyStatus.textContent = "Select the install commands and copy them manually.";
   }
 
   window.setTimeout(() => {
-    copyButton.textContent = "Copy setup";
+    copyButton.textContent = "Copy install";
     copyStatus.textContent = "";
   }, 2400);
 });

@@ -42,7 +42,7 @@
               Froe makes precise changes in one workspace and leaves the evidence behind.
             </p>
             <div class="hero-actions">
-              <a class="button button-primary" href="#install">Install locally</a>
+              <a class="button button-primary" href="#install">Install froe</a>
               <a class="text-link" href="https://github.com/xfq/froe/blob/main/ARCHITECTURE.md">
                 Read the architecture
                 <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -67,24 +67,20 @@
       <section class="install-section" id="install">
         <div class="shell install-grid">
           <div>
-            <h2>Run it locally.</h2>
+            <h2>Install in one command.</h2>
             <p>
-              Requires Node.js 22+ and pnpm.
+              Requires Node.js 22+ and npm.
             </p>
           </div>
 
           <div class="install-terminal">
             <div class="terminal-heading">
-              <span>Local setup</span>
+              <span>Global install</span>
               <button class="copy-button" type="button" data-copy-target="install-command">
-                Copy setup
+                Copy install
               </button>
             </div>
-            <pre><code id="install-command">git clone https://github.com/xfq/froe.git
-cd froe
-pnpm install
-pnpm build
-pnpm add --global .
+            <pre><code id="install-command">npm install --global @xfq/froe
 froe --help</code></pre>
             <p class="copy-status" aria-live="polite"></p>
           </div>
