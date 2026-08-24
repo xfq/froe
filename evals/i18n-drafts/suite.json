@@ -1,0 +1,418 @@
+{
+  "schemaVersion": 1,
+  "id": "i18n-drafts",
+  "title": "W3C Internationalization styling and accessibility tasks",
+  "repository": {
+    "url": "https://github.com/w3c/i18n-drafts.git"
+  },
+  "tasks": [
+    {
+      "id": "LINK-01",
+      "title": "Distinguish visited links in articles",
+      "difficulty": "easy",
+      "seed": "91896b95e839913a94ee26178d46221806c3687e",
+      "prompt": "tasks/LINK-01.md",
+      "checks": [
+        {
+          "type": "css_declaration",
+          "id": "visited-color",
+          "description": "Generic visited article links use the requested brown color",
+          "points": 60,
+          "path": "style/article-2022.css",
+          "selector": "a:visited",
+          "property": "color",
+          "equals": "brown",
+          "media": "screen"
+        },
+        {
+          "type": "changed_paths",
+          "id": "change-scope",
+          "description": "The fix is confined to the article stylesheet",
+          "points": 20,
+          "required": ["style/article-2022.css"],
+          "allowedPatterns": ["^style/article-2022\\.css$"]
+        },
+        {
+          "type": "manual",
+          "id": "visual-states",
+          "description": "Visited, unvisited, hover, navigation, TOC, and heading links remain distinguishable",
+          "points": 20,
+          "instructions": "Open a representative article with visited and unvisited links. Check the content links, hover state, table of contents, site navigation, and linked headings at desktop width."
+        }
+      ]
+    },
+    {
+      "id": "TYPE-01",
+      "title": "Modernize Chinese font stacks and punctuation fallback",
+      "difficulty": "medium",
+      "seed": "562c41eb510bfb060ed7f7f51eaeb9d9d584cad2",
+      "prompt": "tasks/TYPE-01.md",
+      "checks": [
+        {
+          "type": "file_regex",
+          "id": "article-stacks",
+          "description": "Article CSS contains modern Simplified and Traditional Chinese stacks",
+          "points": 20,
+          "path": "style/article-2022.css",
+          "pattern": ":root\\[lang=zh-hans\\] body[\\s\\S]*?font-family:[^;]*Punctuation SC[^;]*PingFang SC[^;]*Noto Sans[^;]*Microsoft YaHei[^;]*;[\\s\\S]*?:root\\[lang=zh-hant\\] body[\\s\\S]*?font-family:[^;]*Punctuation TC[^;]*PingFang TC[^;]*Noto Sans[^;]*Microsoft JhengHei[^;]*;"
+        },
+        {
+          "type": "file_regex",
+          "id": "site-stacks",
+          "description": "Site-page CSS contains the same modern Chinese stacks",
+          "points": 20,
+          "path": "style/sitepage-2022.css",
+          "pattern": ":root\\[lang=zh-hans\\] body[\\s\\S]*?font-family:[^;]*Punctuation SC[^;]*PingFang SC[^;]*Noto Sans[^;]*Microsoft YaHei[^;]*;[\\s\\S]*?:root\\[lang=zh-hant\\] body[\\s\\S]*?font-family:[^;]*Punctuation TC[^;]*PingFang TC[^;]*Noto Sans[^;]*Microsoft JhengHei[^;]*;"
+        },
+        {
+          "type": "all_files_regex",
+          "id": "punctuation-faces",
+          "description": "Both stylesheets define local punctuation faces with Unicode ranges",
+          "points": 25,
+          "paths": ["style/article-2022.css", "style/sitepage-2022.css"],
+          "pattern": "@font-face\\s*\\{[^}]*font-family:\\s*['\"]Punctuation SC['\"][^}]*src:\\s*local\\([^}]*unicode-range:[^}]*\\}[\\s\\S]*?@font-face\\s*\\{[^}]*font-family:\\s*['\"]Punctuation TC['\"][^}]*src:\\s*local\\([^}]*unicode-range:[^}]*\\}"
+        },
+        {
+          "type": "file_not_regex",
+          "id": "article-legacy-fonts",
+          "description": "Article Chinese stacks no longer depend on SimSun or MingLiu",
+          "points": 5,
+          "path": "style/article-2022.css",
+          "pattern": ":root\\[lang=zh-(?:hans|hant)\\] body\\s*\\{[^}]*(?:SimSun|MingLiu)"
+        },
+        {
+          "type": "file_not_regex",
+          "id": "site-legacy-fonts",
+          "description": "Site-page Chinese stacks no longer depend on SimSun or MingLiu",
+          "points": 5,
+          "path": "style/sitepage-2022.css",
+          "pattern": ":root\\[lang=zh-(?:hans|hant)\\] body\\s*\\{[^}]*(?:SimSun|MingLiu)"
+        },
+        {
+          "type": "changed_paths",
+          "id": "change-scope",
+          "description": "Both shared stylesheets, and only those stylesheets, are changed",
+          "points": 10,
+          "required": ["style/article-2022.css", "style/sitepage-2022.css"],
+          "allowedPatterns": ["^style/(?:article|sitepage)-2022\\.css$"]
+        },
+        {
+          "type": "manual",
+          "id": "cross-platform-type",
+          "description": "Chinese text and punctuation render coherently across available platforms",
+          "points": 15,
+          "instructions": "Compare one zh-Hans and one zh-Hant article and site page. Check body text, curly quotes, dashes, ellipses, Latin text, and fallback behavior on at least two available OS/browser font environments."
+        }
+      ]
+    },
+    {
+      "id": "TYPE-02",
+      "title": "Size inline code correctly in article titles",
+      "difficulty": "easy",
+      "seed": "2b1756d632cd08d0c92986f2892e897b55158974",
+      "prompt": "tasks/TYPE-02.md",
+      "checks": [
+        {
+          "type": "css_declaration",
+          "id": "title-code-size",
+          "description": "Code inside h1 uses the heading-specific 88% size",
+          "points": 60,
+          "path": "style/article-2022.css",
+          "selector": "h1 code",
+          "property": "font-size",
+          "equals": "88%",
+          "media": "screen"
+        },
+        {
+          "type": "changed_paths",
+          "id": "change-scope",
+          "description": "The fix is confined to the article stylesheet",
+          "points": 20,
+          "required": ["style/article-2022.css"],
+          "allowedPatterns": ["^style/article-2022\\.css$"]
+        },
+        {
+          "type": "manual",
+          "id": "title-visual",
+          "description": "Code in an h1 aligns with surrounding title text without changing ordinary inline code",
+          "points": 20,
+          "instructions": "Render an article whose h1 contains code. Check baseline, relative size, wrapping, and that code in paragraphs keeps its normal treatment."
+        }
+      ]
+    },
+    {
+      "id": "CODE-01",
+      "title": "Remove nested code background from examples",
+      "difficulty": "easy",
+      "seed": "664e0d361f3993fec415016d60c656f6fef3fab5",
+      "prompt": "tasks/CODE-01.md",
+      "checks": [
+        {
+          "type": "css_declaration",
+          "id": "example-code-background",
+          "description": "Code nested in examples has a transparent background",
+          "points": 60,
+          "path": "style/article-2022.css",
+          "selector": ".example code",
+          "property": "background-color",
+          "equals": "transparent",
+          "media": "screen"
+        },
+        {
+          "type": "changed_paths",
+          "id": "change-scope",
+          "description": "The fix is confined to the article stylesheet",
+          "points": 20,
+          "required": ["style/article-2022.css"],
+          "allowedPatterns": ["^style/article-2022\\.css$"]
+        },
+        {
+          "type": "manual",
+          "id": "example-visual",
+          "description": "Example blocks have one coherent background while ordinary inline code remains highlighted",
+          "points": 20,
+          "instructions": "Render an article with code inside an example and code in a normal paragraph. Verify the nested example code does not create a second background box and ordinary inline code is unchanged."
+        }
+      ]
+    },
+    {
+      "id": "HIER-01",
+      "title": "Strengthen article h2 hierarchy",
+      "difficulty": "medium",
+      "seed": "9db0402b0856630c08c72aab551220f9a40775e8",
+      "prompt": "tasks/HIER-01.md",
+      "checks": [
+        {
+          "type": "css_declaration",
+          "id": "h2-size",
+          "description": "Article h2 headings use a 2em size",
+          "points": 15,
+          "path": "style/article-2022.css",
+          "selector": "h2",
+          "property": "font-size",
+          "equals": "2em",
+          "media": "screen"
+        },
+        {
+          "type": "css_declaration",
+          "id": "h2-weight",
+          "description": "Article h2 headings use normal weight",
+          "points": 15,
+          "path": "style/article-2022.css",
+          "selector": "h2",
+          "property": "font-weight",
+          "equals": "normal",
+          "media": "screen"
+        },
+        {
+          "type": "css_declaration",
+          "id": "h2-spacing",
+          "description": "Later article h2 headings have generous section spacing",
+          "points": 15,
+          "path": "style/article-2022.css",
+          "selector": "h2",
+          "property": "margin-block-start",
+          "equals": "6em",
+          "media": "screen"
+        },
+        {
+          "type": "css_declaration",
+          "id": "first-h2-spacing",
+          "description": "The first section h2 has a smaller 3em starting gap",
+          "points": 15,
+          "path": "style/article-2022.css",
+          "selector": "section:first-of-type h2",
+          "property": "margin-block-start",
+          "equals": "3em",
+          "media": "screen"
+        },
+        {
+          "type": "css_declaration",
+          "id": "print-override",
+          "description": "Print CSS no longer overrides h2 start spacing",
+          "points": 10,
+          "path": "style/article-2022.css",
+          "selector": "h2",
+          "property": "margin-block-start",
+          "absent": true,
+          "media": "print"
+        },
+        {
+          "type": "changed_paths",
+          "id": "change-scope",
+          "description": "The hierarchy change is confined to the article stylesheet",
+          "points": 10,
+          "required": ["style/article-2022.css"],
+          "allowedPatterns": ["^style/article-2022\\.css$"]
+        },
+        {
+          "type": "manual",
+          "id": "hierarchy-visual",
+          "description": "Long articles have a clear hierarchy on screen and sensible print flow",
+          "points": 20,
+          "instructions": "Review a long article at desktop width and in print preview. Check the first and later h2 gaps, title hierarchy, heading links, and page breaks."
+        }
+      ]
+    },
+    {
+      "id": "RESP-01",
+      "title": "Make site navigation pages usable on mobile",
+      "difficulty": "hard",
+      "seed": "5540ce5d365fa25a3b84be041f58de9cddf1e35b",
+      "prompt": "tasks/RESP-01.md",
+      "checks": [
+        {
+          "type": "all_files_regex",
+          "id": "viewport-meta",
+          "description": "All in-scope navigation pages declare a responsive viewport",
+          "points": 25,
+          "paths": [
+            "nav/about.html",
+            "nav/about.zh-hans.html",
+            "nav/ask.html",
+            "nav/find.html",
+            "nav/follow.html",
+            "nav/learn.html",
+            "nav/learn.zh-hans.html",
+            "nav/participate.html",
+            "nav/participate.zh-hans.html"
+          ],
+          "pattern": "<meta\\s+name=['\"]viewport['\"]\\s+content=['\"][^'\"]*width=device-width[^'\"]*['\"]\\s*/?>",
+          "flags": "i"
+        },
+        {
+          "type": "file_regex",
+          "id": "mobile-breakpoint",
+          "description": "The site stylesheet defines the agreed mobile breakpoint",
+          "points": 10,
+          "path": "style/sitepage-2022.css",
+          "pattern": "@media\\s*\\(max-width:\\s*767px\\)"
+        },
+        {
+          "type": "css_declaration",
+          "id": "responsive-images",
+          "description": "Images cannot overflow the mobile viewport",
+          "points": 10,
+          "path": "style/sitepage-2022.css",
+          "selector": "img",
+          "property": "max-width",
+          "equals": "100%",
+          "mediaPattern": "max-width:\\s*767px"
+        },
+        {
+          "type": "css_declaration",
+          "id": "mobile-asides",
+          "description": "Asides stop floating on mobile",
+          "points": 10,
+          "path": "style/sitepage-2022.css",
+          "selector": "aside",
+          "property": "float",
+          "equals": "none",
+          "mediaPattern": "max-width:\\s*767px"
+        },
+        {
+          "type": "css_declaration",
+          "id": "mobile-directory",
+          "description": "Directory navigation returns to normal flow on mobile",
+          "points": 10,
+          "path": "style/sitepage-2022.css",
+          "selector": ".directory",
+          "property": "position",
+          "equals": "static",
+          "mediaPattern": "max-width:\\s*767px"
+        },
+        {
+          "type": "changed_paths",
+          "id": "change-scope",
+          "description": "Only the shared stylesheet and the nine target pages change",
+          "points": 15,
+          "required": [
+            "nav/about.html",
+            "nav/about.zh-hans.html",
+            "nav/ask.html",
+            "nav/find.html",
+            "nav/follow.html",
+            "nav/learn.html",
+            "nav/learn.zh-hans.html",
+            "nav/participate.html",
+            "nav/participate.zh-hans.html",
+            "style/sitepage-2022.css"
+          ],
+          "allowedPatterns": ["^nav/(?:about|ask|find|follow|learn|participate)(?:\\.zh-hans)?\\.html$", "^style/sitepage-2022\\.css$"]
+        },
+        {
+          "type": "manual",
+          "id": "responsive-visual",
+          "description": "English and Chinese pages work at mobile and desktop widths",
+          "points": 20,
+          "instructions": "Capture representative English and zh-Hans pages at 390px and 1280px. Check horizontal overflow, navigation, search, directory cards, figures, side notes, readable line length, and desktop regressions."
+        }
+      ]
+    },
+    {
+      "id": "A11Y-01",
+      "title": "Add localized skip navigation to articles",
+      "difficulty": "hard",
+      "seed": "e6637e25b8085475c8d93eb52b73b56c3ebf2fc8",
+      "prompt": "tasks/A11Y-01.md",
+      "checks": [
+        {
+          "type": "all_files_regex",
+          "id": "all-locales",
+          "description": "Every locale dictionary defines skip-navigation text",
+          "points": 15,
+          "pathPattern": "^javascript/boilerplate-text/boilerplate-[^/]+\\.js$",
+          "minimumFiles": 28,
+          "pattern": "s\\.skipNavigation\\s*=\\s*['\"][^'\"]+['\"]"
+        },
+        {
+          "type": "file_regex",
+          "id": "english-label",
+          "description": "The English label describes skipping to main content",
+          "points": 5,
+          "path": "javascript/boilerplate-text/boilerplate-en.js",
+          "pattern": "s\\.skipNavigation\\s*=\\s*['\"]Skip to main content['\"]"
+        },
+        {
+          "type": "file_regex",
+          "id": "chinese-label",
+          "description": "The Simplified Chinese label is localized",
+          "points": 5,
+          "path": "javascript/boilerplate-text/boilerplate-zh-hans.js",
+          "pattern": "s\\.skipNavigation\\s*=\\s*['\"]跳至主要内容['\"]"
+        },
+        {
+          "type": "file_regex",
+          "id": "skip-link-behavior",
+          "description": "Article assembly inserts a localized skip link targeting the first h1",
+          "points": 25,
+          "path": "javascript/doc-structure/article-2022.js",
+          "pattern": "function\\s+addSkipLink\\s*\\([^)]*\\)[\\s\\S]*?querySelector\\s*\\(\\s*['\"]h1['\"]\\s*\\)[\\s\\S]*?skip-link[\\s\\S]*?s\\.skipNavigation[\\s\\S]*?insertBefore[\\s\\S]*?function\\s+completePage\\s*\\([^)]*\\)[\\s\\S]*?addSkipLink\\s*\\("
+        },
+        {
+          "type": "file_regex",
+          "id": "focus-styles",
+          "description": "The skip link is off-screen until keyboard focus makes it visible",
+          "points": 15,
+          "path": "style/article-2022.css",
+          "pattern": "\\.skip-link\\s*\\{[^}]*position:\\s*absolute[^}]*left:\\s*-9999px[^}]*\\}[\\s\\S]*?\\.skip-link:focus\\s*\\{[^}]*left:\\s*6px"
+        },
+        {
+          "type": "changed_paths",
+          "id": "change-scope",
+          "description": "Changes stay within locale dictionaries, article assembly, and article CSS",
+          "points": 15,
+          "required": ["javascript/doc-structure/article-2022.js", "style/article-2022.css"],
+          "allowedPatterns": ["^javascript/boilerplate-text/boilerplate-[^/]+\\.js$", "^javascript/doc-structure/article-2022\\.js$", "^style/article-2022\\.css$"]
+        },
+        {
+          "type": "manual",
+          "id": "keyboard-review",
+          "description": "The first Tab reveals a usable localized skip link in LTR and RTL articles",
+          "points": 20,
+          "instructions": "With a keyboard, load English, zh-Hans, and one RTL article. Verify the first Tab reveals the localized link, Enter moves focus to the main h1, the URL target is unique, and the link does not disturb the unfocused layout."
+        }
+      ]
+    }
+  ]
+}

@@ -76,6 +76,10 @@ pnpm build
 
 `pnpm smoke:openai` is an opt-in external integration check and requires real credentials.
 
+## Development evaluation harness
+
+The repository-local evaluation harness under [`evals/`](./evals/) and [`scripts/eval.ts`](./scripts/eval.ts) is development infrastructure and is not included in the published package.
+
 ## Evolution rules
 
 Keep this file descriptive rather than aspirational. When implementation changes any of the following, update the corresponding section here in the same change:

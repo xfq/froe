@@ -153,6 +153,8 @@ python3 -m http.server 8000 --directory site
 
 The suite uses a deterministic model adapter and a local fake OpenAI server; it makes no external network calls or billable API requests. On macOS it also runs local Seatbelt integration tests, including a connection attempt to a closed localhost port. `pnpm smoke:openai` is opt-in and does make a minimal API request.
 
+The repository also includes an agent-neutral coding evaluation under [`evals/`](./evals/). It replays real historical tasks in isolated one-commit workspaces and records automated plus manual-review scores. See [`evals/README.md`](./evals/README.md) for the construction rules and runner commands.
+
 `pnpm dev -- "..."` is for developing froe itself. Without `--workspace`, it uses this repository as the Workspace. To exercise the development entry point against another repository, pass its path explicitly:
 
 ```sh

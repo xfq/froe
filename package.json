@@ -26,6 +26,7 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
     "test": "tsx --test test/**/*.test.ts",
     "dev": "tsx src/cli.ts",
+    "eval": "tsx scripts/eval.ts",
     "smoke:openai": "tsx scripts/smoke-openai.ts"
   },
   "dependencies": {

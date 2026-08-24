@@ -3,3 +3,6 @@ dist/
 .froe/
 coverage/
 *.log
+evals/workspaces/
+evals/**/.cache/
+evals/**/results/
