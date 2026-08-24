@@ -155,11 +155,22 @@ The suite uses a deterministic model adapter and a local fake OpenAI server; it 
 
 The repository also includes an agent-neutral coding evaluation under [`evals/`](./evals/). It replays real historical tasks in isolated one-commit workspaces and records automated plus manual-review scores. See [`evals/README.md`](./evals/README.md) for the construction rules and runner commands.
 
-`pnpm dev -- "..."` is for developing froe itself. Without `--workspace`, it uses this repository as the Workspace. To exercise the development entry point against another repository, pass its path explicitly:
+`pnpm exec tsx src/cli.ts "..."` is for developing froe itself. Without `--workspace`, it uses this repository as the Workspace. To exercise the development entry point against another repository, pass its path explicitly:
 
 ```sh
-pnpm dev -- --workspace /path/to/your-project "Fix the failing parser tests"
+pnpm exec tsx src/cli.ts --workspace /path/to/your-project "Fix the failing parser tests"
 ```
+
+To keep a released package and the local development version available at the same time, reserve `froe` for the globally installed release and add a `froe-dev` shell function for this checkout. Add the following to `~/.zshrc`, replacing the path with your clone's location:
+
+```sh
+froe-dev() {
+  local workspace=$PWD
+  (cd /path/to/froe && pnpm exec tsx src/cli.ts --workspace "$workspace" "$@")
+}
+```
+
+Then, from a target repository, use `froe "..."` for the released version and `froe-dev "..."` for the local source version. Use `froe --version` or `froe-dev --version` to confirm the package version in use. Avoid `npm link`, which replaces the release command with the local checkout and makes the two easy to confuse.
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the current design and source map, and update it alongside architecture-affecting implementation changes.
 

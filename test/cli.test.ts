@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
+import { execFile as execFileCallback } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { PassThrough } from "node:stream";
 import test from "node:test";
+import { promisify } from "node:util";
 import { completeSlashCommand, terminalMessages } from "../src/terminal-conversation.js";
+
+const execFile = promisify(execFileCallback);
 
 test("slash-command completion offers supported commands only", () => {
   assert.deepEqual(completeSlashCommand("/"), [["/exit", "/init"], "/"]);
@@ -29,4 +34,17 @@ test("terminal input accepts follow-ups and releases stdin between messages", as
   const exit = messages.next();
   input.write("/exit\n");
   assert.deepEqual(await exit, { value: undefined, done: true });
+});
+
+test("CLI prints its package version without starting a run", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+  const repository = new URL("..", import.meta.url).pathname;
+  const tsx = new URL("../node_modules/.bin/tsx", import.meta.url).pathname;
+  const { stdout, stderr } = await execFile(tsx, ["src/cli.ts", "--version"], {
+    cwd: repository,
+    encoding: "utf8",
+  });
+
+  assert.equal(stdout, `froe ${manifest.version}\n`);
+  assert.equal(stderr, "");
 });

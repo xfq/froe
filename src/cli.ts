@@ -3,7 +3,7 @@ import { parseArgs } from "node:util";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { stdin as input, stderr as output } from "node:process";
+import { stdin as input, stderr as output, stdout } from "node:process";
 import type { ReadStream, WriteStream } from "node:tty";
 import { ActionRuntime, type ApprovalGate, type ApprovalRequest } from "./action-runtime.js";
 import { createCommandSandbox } from "./command-sandbox.js";
@@ -18,6 +18,7 @@ import { terminalMessages } from "./terminal-conversation.js";
 import type { EventSink, ReasoningEffort, RunEvent, RunOptions } from "./types.js";
 
 const reasoningValues = new Set<ReasoningEffort>(["none", "low", "medium", "high", "xhigh", "max"]);
+const packageVersion = await readPackageVersion();
 
 async function main(): Promise<void> {
   const options = await parseOptions();
@@ -104,6 +105,7 @@ async function parseOptions(): Promise<RunOptions> {
       yes: { type: "boolean", short: "y", default: false },
       verbose: { type: "boolean", short: "v", default: false },
       "no-log": { type: "boolean", default: false },
+      version: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
     allowPositionals: true,
@@ -111,6 +113,10 @@ async function parseOptions(): Promise<RunOptions> {
   });
   if (parsed.values.help) {
     printHelp();
+    process.exit(0);
+  }
+  if (parsed.values.version) {
+    stdout.write(`froe ${packageVersion}\n`);
     process.exit(0);
   }
   const taskFromArguments = parsed.positionals.join(" ").trim();
@@ -145,6 +151,12 @@ async function parseOptions(): Promise<RunOptions> {
 
 async function taskFromStdin(): Promise<string> {
   return readFile("/dev/stdin", "utf8");
+}
+
+async function readPackageVersion(): Promise<string> {
+  const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as { version?: unknown };
+  if (typeof manifest.version !== "string") throw new Error("Package manifest does not define a version.");
+  return manifest.version;
 }
 
 async function promptForApiKey(terminalInput: ReadStream, terminalOutput: WriteStream): Promise<string> {
@@ -311,7 +323,7 @@ function optionalPositiveInteger(value: string | undefined, flag: string): numbe
 class UsageError extends Error {}
 
 function printHelp(): void {
-  output.write(`Usage: froe [options] [task...]\n\nRun without a task in an interactive terminal to start a conversation.\n\nOptions:\n  -w, --workspace <path>  Workspace directory (default: current directory)\n      --base-url <url>     OpenAI-compatible API endpoint\n  -m, --model <id>        OpenAI-compatible model (default: gpt-5.6-terra)\n      --reasoning <level>  none, low, medium, high, xhigh, or max\n  -c, --config <path>     Additional user-controlled JSON configuration\n      --max-turns <n>      Maximum model turns per message\n  -y, --yes               Approve ordinary policy prompts, never sandbox exceptions\n  -v, --verbose           Show full non-sensitive tool output\n      --no-log            Do not write a local run record\n  -h, --help              Show this help\n`);
+  output.write(`Usage: froe [options] [task...]\n\nRun without a task in an interactive terminal to start a conversation.\n\nOptions:\n  -w, --workspace <path>  Workspace directory (default: current directory)\n      --base-url <url>     OpenAI-compatible API endpoint\n  -m, --model <id>        OpenAI-compatible model (default: gpt-5.6-terra)\n      --reasoning <level>  none, low, medium, high, xhigh, or max\n  -c, --config <path>     Additional user-controlled JSON configuration\n      --max-turns <n>      Maximum model turns per message\n  -y, --yes               Approve ordinary policy prompts, never sandbox exceptions\n  -v, --verbose           Show full non-sensitive tool output\n      --no-log            Do not write a local run record\n      --version           Show the installed package version\n  -h, --help              Show this help\n`);
 }
 
 main().catch((error: unknown) => {
