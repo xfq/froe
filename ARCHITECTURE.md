@@ -33,7 +33,7 @@ The model sees six actions. Their JSON schemas and implementations live together
 | `read_file` | Reads bounded lines and bytes from one UTF-8 text file. |
 | `search` | Performs literal, case-sensitive search with `rg`; falls back to a Node traversal if `rg` is unavailable or unusable. |
 | `apply_patch` | Creates, replaces, or deletes UTF-8 text files through exact-match changes. A batch validates before mutation and stages writes before replacement. |
-| `run_command` | Runs one executable with an argument array through `CommandSandbox`, with a workspace-contained working directory, bounded output, and a timeout. It never invokes a shell implicitly. |
+| `run_command` | Runs one executable with an argument array through `CommandSandbox`, with a workspace-contained working directory, bounded output, and a timeout. On macOS the child receives a temporary `HOME` and can read only the Workspace, temporary directory, system runtime, and resolved supported toolchains. It never invokes a shell implicitly. |
 | `finish` | Parses the model's proposed outcome; the run loop performs the final semantic checks. |
 
 ### Approval boundary

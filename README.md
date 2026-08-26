@@ -118,7 +118,7 @@ The provider must support the OpenAI Responses API, including function calling. 
 
 ## Safety model
 
-froe can read and search the Workspace, apply exact text patches, and run ordinary commands automatically. On macOS, every spawned command runs under a generated Seatbelt profile that permits writes only to the Workspace and the process temporary directory and denies network access. Froe itself, its run record, approval prompt, credentials, and OpenAI connection stay outside that child-process sandbox.
+froe can read and search the Workspace, apply exact text patches, and run ordinary commands automatically. On macOS, every spawned command runs under a generated Seatbelt profile that can read only the Workspace, its temporary directory, required system runtime locations, and the resolved Node toolchain; it can write only to the Workspace and temporary directory, and cannot access the network. The child receives the temporary directory as its home directory, so it cannot discover user credentials through `HOME`. Froe itself, its run record, approval prompt, credentials, and OpenAI connection stay outside that child-process sandbox.
 
 froe only edits UTF-8 text files inside the Workspace. It rejects symbolic links, files outside the Workspace, binary data, mode changes, and renames. Existing Git changes are allowed; froe never commits, resets, or rolls them back.
 

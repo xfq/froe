@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, realpath } from "node:fs/promises";
+import { access, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -28,12 +28,12 @@ test("macOS Seatbelt allows workspace and temporary writes and retries other wri
   const outsidePath = join(outside, "outside.txt");
 
   const allowed = await sandbox.run(invocation("/usr/bin/touch", [insidePath], workspace));
-  assert.equal(allowed.exitCode, 0);
+  assert.equal(allowed.exitCode, 0, JSON.stringify(allowed));
   assert.equal(allowed.denial, undefined);
   await access(insidePath);
 
   const temporary = await sandbox.run(invocation("/usr/bin/touch", [temporaryPath], workspace));
-  assert.equal(temporary.exitCode, 0);
+  assert.equal(temporary.exitCode, 0, JSON.stringify(temporary));
   assert.equal(temporary.denial, undefined);
   await access(temporaryPath);
 
@@ -46,7 +46,7 @@ test("macOS Seatbelt allows workspace and temporary writes and retries other wri
     invocation("/usr/bin/touch", [outsidePath], workspace),
     blocked.denial?.exceptions,
   );
-  assert.equal(retried.exitCode, 0);
+  assert.equal(retried.exitCode, 0, JSON.stringify(retried));
   assert.equal(retried.denial, undefined);
   await access(outsidePath);
 });
@@ -60,7 +60,7 @@ test("macOS Seatbelt denies network by default and scopes a retry to the denied 
 
   const blocked = await sandbox.run(command);
   const networkException = blocked.denial?.exceptions[0];
-  assert.equal(networkException?.type, "network");
+  assert.equal(networkException?.type, "network", JSON.stringify(blocked));
   if (networkException?.type !== "network") assert.fail("Expected a network sandbox exception");
   assert.equal(networkException.operation, "network-outbound");
   assert.match(networkException.target, /^remote:.+:9$/);
@@ -68,4 +68,35 @@ test("macOS Seatbelt denies network by default and scopes a retry to the denied 
   const retried = await sandbox.run(command, blocked.denial?.exceptions);
   assert.equal(retried.denial, undefined);
   assert.equal(retried.exitCode, 7);
+});
+
+test("macOS Seatbelt limits command reads to the workspace, temporary directory, system runtime, and trusted toolchains", {
+  skip: process.platform !== "darwin" ? "Seatbelt is available only on macOS" : false,
+}, async () => {
+  const workspace = await realpath(await mkdtemp(join(tmpdir(), "froe-seatbelt-read-workspace-")));
+  const temporaryDirectory = await realpath(await mkdtemp(join(tmpdir(), "froe-seatbelt-read-temporary-")));
+  const outside = await realpath(await mkdtemp(join(tmpdir(), "froe-seatbelt-read-outside-")));
+  const workspaceFile = join(workspace, "workspace.txt");
+  const outsideFile = join(outside, "secret.txt");
+  await writeFile(workspaceFile, "workspace-only", "utf8");
+  await writeFile(outsideFile, "must-not-leak", "utf8");
+  const sandbox = await MacOSSeatbeltCommandSandbox.create(workspace, temporaryDirectory);
+
+  const allowed = await sandbox.run(invocation("/bin/cat", [workspaceFile], workspace));
+  assert.equal(allowed.exitCode, 0, JSON.stringify(allowed));
+  assert.equal(allowed.output, "workspace-only");
+  assert.equal(allowed.denial, undefined);
+
+  const blocked = await sandbox.run(invocation("/bin/cat", [outsideFile], workspace));
+  assert.notEqual(blocked.denial, undefined);
+  assert.match(blocked.denial?.reason ?? "", /file-read/);
+  assert.doesNotMatch(blocked.output, /must-not-leak/);
+
+  const isolatedHome = await sandbox.run(invocation("/usr/bin/printenv", ["HOME"], workspace));
+  assert.equal(isolatedHome.exitCode, 0);
+  assert.equal(isolatedHome.output.trim(), temporaryDirectory);
+
+  const node = await sandbox.run(invocation(process.execPath, ["-e", "process.stdout.write('node-ok')"], workspace));
+  assert.equal(node.exitCode, 0);
+  assert.equal(node.output, "node-ok");
 });

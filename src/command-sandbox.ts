@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { access, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute } from "node:path";
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const sandboxExecutable = "/usr/bin/sandbox-exec";
 const logExecutable = "/usr/bin/log";
@@ -10,6 +10,9 @@ const monitorReadyText = "Filtering the log data";
 const monitorStartupTimeoutMs = 2_000;
 const violationFlushMs = 150;
 const diagnosticBytes = 16 * 1024;
+const systemReadRoots = ["/System", "/usr", "/bin", "/sbin", "/dev", "/opt/homebrew", "/opt/local", "/private/var/db/timezone"];
+const systemMetadataRoots = ["/etc", "/private", "/private/etc", "/private/etc/ssl", "/var"];
+const systemRuntimeFiles = ["/Library/Preferences/Logging/com.apple.diagnosticd.filter.plist", "/private/etc/ssl/openssl.cnf"];
 const supportedNetworkOperations = new Set([
   "network-bind",
   "network-channel",
@@ -86,13 +89,14 @@ export class MacOSSeatbeltCommandSandbox implements CommandSandbox {
   async run(command: CommandInvocation, exceptions: SandboxException[] = []): Promise<SandboxedCommandResult> {
     const marker = `FROE_SANDBOX_${randomUUID().replaceAll("-", "")}`;
     const monitor = await startViolationMonitor(marker);
+    const readRoots = await commandReadRoots(command, this.#workspace, this.#temporaryDirectory);
     let result: CapturedProcessResult;
     try {
       result = await captureProcess({
         executable: sandboxExecutable,
-        args: ["-p", seatbeltProfile(this.#workspace, this.#temporaryDirectory, marker, exceptions), command.executable, ...command.args],
+        args: ["-p", seatbeltProfile(this.#workspace, this.#temporaryDirectory, marker, readRoots, exceptions), command.executable, ...command.args],
         cwd: command.cwd,
-        env: { ...command.env, TMPDIR: this.#temporaryDirectory },
+        env: { ...command.env, HOME: this.#temporaryDirectory, TMPDIR: this.#temporaryDirectory },
         timeoutMs: command.timeoutMs,
         maxOutputBytes: command.maxOutputBytes,
         ...(command.signal === undefined ? {} : { signal: command.signal }),
@@ -284,12 +288,24 @@ function captureProcess(command: CommandInvocation): Promise<CapturedProcessResu
   });
 }
 
-function seatbeltProfile(workspace: string, temporaryDirectory: string, marker: string, exceptions: SandboxException[]): string {
+function seatbeltProfile(
+  workspace: string,
+  temporaryDirectory: string,
+  marker: string,
+  readRoots: string[],
+  exceptions: SandboxException[],
+): string {
   const rules = [
     "(version 1)",
     "(allow default)",
     `(deny network* (with message ${profileString(marker)}))`,
+    `(deny file-read* (with message ${profileString(marker)}))`,
     `(deny file-write* (with message ${profileString(marker)}))`,
+    '(allow file-read* (literal "/"))',
+    ...systemMetadataRoots.map((path) => `(allow file-read-metadata (subpath ${profileString(path)}))`),
+    `(allow file-read-metadata (literal ${profileString(process.env.HOME ?? "/var/empty")}))`,
+    ...uniquePaths([...systemRuntimeFiles, userRuntimeFile()]).map((path) => `(allow file-read* (literal ${profileString(path)}))`),
+    ...uniquePaths([workspace, temporaryDirectory, ...systemReadRoots, ...readRoots]).map((path) => `(allow file-read* (subpath ${profileString(path)}))`),
     `(allow file-write* (subpath ${profileString(workspace)}))`,
     `(allow file-write* (subpath ${profileString(temporaryDirectory)}))`,
     '(allow file-write-data (literal "/dev/dtracehelper") (literal "/dev/null"))',
@@ -297,6 +313,9 @@ function seatbeltProfile(workspace: string, temporaryDirectory: string, marker: 
   for (const exception of uniqueExceptions(exceptions)) {
     if (exception.type === "file-write") {
       if (!isAbsolute(exception.path)) throw new CommandSandboxError("invalid_sandbox_exception", "File-write sandbox exceptions must be absolute paths.");
+      const parent = dirname(exception.path);
+      rules.push(`(allow file-read-metadata (literal ${profileString(parent)}))`);
+      rules.push(`(allow file-read* (literal ${profileString(exception.path)}))`);
       rules.push(`(allow file-write* (literal ${profileString(exception.path)}) (subpath ${profileString(exception.path)}))`);
       continue;
     }
@@ -310,6 +329,51 @@ function seatbeltProfile(workspace: string, temporaryDirectory: string, marker: 
     rules.push(`(allow ${exception.operation} (${networkTarget.direction} ip ${profileString(networkTarget.address)}))`);
   }
   return `${rules.join("\n")}\n`;
+}
+
+async function commandReadRoots(command: CommandInvocation, workspace: string, temporaryDirectory: string): Promise<string[]> {
+  const candidates: string[] = [command.executable, ...(command.env.PATH ?? "").split(delimiter)]
+    .map((candidate) => resolveCommandPath(candidate, command.cwd))
+    .filter((candidate): candidate is string => candidate !== undefined);
+  const resolved = await Promise.all(candidates.map(async (candidate) => realpath(candidate).catch(() => undefined)));
+  const roots: string[] = [];
+  for (const candidate of resolved) {
+    if (candidate === undefined) continue;
+    const root = trustedToolchainRoot(candidate);
+    if (root !== undefined && !isInside(workspace, root) && !isInside(temporaryDirectory, root)) roots.push(root);
+  }
+  return uniquePaths(roots);
+}
+
+function resolveCommandPath(candidate: string, cwd: string): string | undefined {
+  if (!candidate) return undefined;
+  if (isAbsolute(candidate)) return candidate;
+  if (candidate.includes(sep)) return resolve(cwd, candidate);
+  return undefined;
+}
+
+function trustedToolchainRoot(path: string): string | undefined {
+  const home = process.env.HOME;
+  if (home === undefined || !isInside(home, path)) return undefined;
+  const segments = relative(home, path).split(sep).filter(Boolean);
+  if (segments[0] === ".nvm" && segments[1] === "versions" && segments[2] === "node" && segments[3] !== undefined) {
+    return join(home, ".nvm", "versions", "node", segments[3]);
+  }
+  if (segments[0] === "Library" && segments[1] === "pnpm") return join(home, "Library", "pnpm");
+  return undefined;
+}
+
+function isInside(parent: string, child: string): boolean {
+  const path = relative(parent, child);
+  return path === "" || (!path.startsWith(`..${sep}`) && path !== ".." && !isAbsolute(path));
+}
+
+function uniquePaths(paths: string[]): string[] {
+  return [...new Set(paths)];
+}
+
+function userRuntimeFile(): string {
+  return join(process.env.HOME ?? "/var/empty", ".CFUserTextEncoding");
 }
 
 function profileString(value: string): string {
