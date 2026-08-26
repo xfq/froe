@@ -25,10 +25,15 @@ class NoCommands implements CommandSandbox {
 test("a conversation sends follow-up messages after a completed run", async () => {
   const root = await mkdtemp(join(tmpdir(), "froe-conversation-"));
   const runtime = await ActionRuntime.create(root, defaultConfig, new Approval(), new NoCommands());
+  const image = { data: Uint8Array.of(1, 2, 3), mediaType: "image/png" as const };
   const model = new ScriptedModel([
-    [finishAction("first-finish", "Handled the first message.")],
+    (turn) => {
+      assert.deepEqual(turn.images, [image]);
+      return [finishAction("first-finish", "Handled the first message.")];
+    },
     (turn) => {
       assert.equal(turn.user, "Please add tests too");
+      assert.equal(turn.images, undefined);
       assert.equal(turn.actionResults?.[0]?.callId, "first-finish");
       assert.equal(turn.actionResults?.[0]?.name, "finish");
       return [finishAction("second-finish", "Handled the follow-up message.")];
@@ -38,6 +43,7 @@ test("a conversation sends follow-up messages after a completed run", async () =
 
   const outcomes = await runConversation({
     messages: messages("Implement the feature", "Please add tests too"),
+    images: [image],
     model,
     runtime,
     instructions: [],

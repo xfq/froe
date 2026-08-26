@@ -1,6 +1,6 @@
 import OpenAI from "openai";
-import type { ResponseInputItem, ResponseOutputItem } from "openai/resources/responses/responses";
-import type { ActionRequest, ActionResult, FroeConfig, ModelEvent, ModelProvider, ModelTurn } from "./types.js";
+import type { ResponseInputItem, ResponseInputMessageContentList, ResponseOutputItem } from "openai/resources/responses/responses";
+import type { ActionRequest, ActionResult, FroeConfig, ModelEvent, ModelProvider, ModelTurn, PromptImage } from "./types.js";
 
 export class OpenAIProvider implements ModelProvider {
   readonly name = "openai";
@@ -27,7 +27,7 @@ export class OpenAIProvider implements ModelProvider {
   }
 
   async *turn(input: ModelTurn): AsyncIterable<ModelEvent> {
-    if (input.user !== undefined) this.#history.push({ role: "user", content: input.user });
+    if (input.user !== undefined) this.#history.push(userMessage(input.user, input.images ?? []));
 
     const response = await this.#client.responses.create({
       model: this.#config.model,
@@ -60,6 +60,19 @@ export class OpenAIProvider implements ModelProvider {
     }
     yield { type: "completed" };
   }
+}
+
+function userMessage(text: string, images: PromptImage[]): ResponseInputItem {
+  if (images.length === 0) return { role: "user", content: text };
+  const content: ResponseInputMessageContentList = [
+    { type: "input_text", text },
+    ...images.map((image) => ({
+      type: "input_image" as const,
+      detail: "auto" as const,
+      image_url: `data:${image.mediaType};base64,${Buffer.from(image.data).toString("base64")}`,
+    })),
+  ];
+  return { role: "user", content };
 }
 
 export interface OpenAIProviderOptions {

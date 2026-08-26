@@ -7,6 +7,7 @@ export interface ConversationRequest extends Omit<RunRequest, "task"> {
 
 export async function runConversation(request: ConversationRequest): Promise<RunOutcome[]> {
   const outcomes: RunOutcome[] = [];
+  let images = request.images;
 
   for await (const message of request.messages) {
     const task = message.trim();
@@ -14,6 +15,7 @@ export async function runConversation(request: ConversationRequest): Promise<Run
 
     const outcome = await runTask({
       task,
+      ...(images === undefined || images.length === 0 ? {} : { images }),
       model: request.model,
       runtime: request.runtime,
       instructions: request.instructions,
@@ -22,6 +24,7 @@ export async function runConversation(request: ConversationRequest): Promise<Run
       ...(request.signal === undefined ? {} : { signal: request.signal }),
       ...(request.emit === undefined ? {} : { emit: request.emit }),
     });
+    images = undefined;
     outcomes.push(outcome);
     if (outcome.status === "cancelled") break;
   }

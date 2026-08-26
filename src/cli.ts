@@ -12,6 +12,7 @@ import { runConversation } from "./conversation.js";
 import { DEFAULT_OPENAI_BASE_URL, FileCredentialStore, resolveOpenAICredentials } from "./credentials.js";
 import { discoverProjectInstructions } from "./instructions.js";
 import { OpenAIProvider } from "./openai-provider.js";
+import { loadPromptImages } from "./prompt-images.js";
 import { RunRecorder } from "./recorder.js";
 import { runTask } from "./run.js";
 import { terminalMessages } from "./terminal-conversation.js";
@@ -65,6 +66,7 @@ async function main(): Promise<void> {
       printConversationBanner(options.config.model, runtime.workspace, recorder.path);
       await runConversation({
         messages: terminalMessages(input, output, controller.signal),
+        images: options.images,
         model: provider,
         runtime,
         instructions,
@@ -77,6 +79,7 @@ async function main(): Promise<void> {
     } else {
       const outcome = await runTask({
         task: options.task,
+        images: options.images,
         model: provider,
         runtime,
         instructions,
@@ -100,6 +103,7 @@ async function parseOptions(): Promise<RunOptions> {
       "base-url": { type: "string" },
       model: { type: "string", short: "m" },
       reasoning: { type: "string" },
+      image: { type: "string", multiple: true },
       config: { type: "string", short: "c" },
       "max-turns": { type: "string" },
       yes: { type: "boolean", short: "y", default: false },
@@ -127,6 +131,7 @@ async function parseOptions(): Promise<RunOptions> {
   }
   const workspace = resolve(stringOption(parsed.values.workspace) ?? process.cwd());
   const reasoning = optionalReasoning(stringOption(parsed.values.reasoning));
+  const images = await loadPromptImages(stringOptions(parsed.values.image));
   const maxTurns = optionalPositiveInteger(stringOption(parsed.values["max-turns"]), "--max-turns");
   const explicitConfigPath = stringOption(parsed.values.config);
   const config = await loadConfig({
@@ -142,6 +147,7 @@ async function parseOptions(): Promise<RunOptions> {
   return {
     workspace,
     ...(task === undefined ? {} : { task }),
+    images,
     config,
     yes: Boolean(parsed.values.yes),
     verbose: Boolean(parsed.values.verbose),
@@ -307,6 +313,12 @@ function stringOption(value: string | boolean | undefined): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function stringOptions(value: string | string[] | boolean | undefined): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) return value;
+  return [];
+}
+
 function optionalReasoning(value: string | undefined): ReasoningEffort | undefined {
   if (value === undefined) return undefined;
   if (!reasoningValues.has(value as ReasoningEffort)) throw new UsageError("--reasoning must be none, low, medium, high, xhigh, or max");
@@ -323,7 +335,7 @@ function optionalPositiveInteger(value: string | undefined, flag: string): numbe
 class UsageError extends Error {}
 
 function printHelp(): void {
-  output.write(`Usage: froe [options] [task...]\n\nRun without a task in an interactive terminal to start a conversation.\n\nOptions:\n  -w, --workspace <path>  Workspace directory (default: current directory)\n      --base-url <url>     OpenAI-compatible API endpoint\n  -m, --model <id>        OpenAI-compatible model (default: gpt-5.6-terra)\n      --reasoning <level>  none, low, medium, high, xhigh, or max\n  -c, --config <path>     Additional user-controlled JSON configuration\n      --max-turns <n>      Maximum model turns per message\n  -y, --yes               Approve ordinary policy prompts, never sandbox exceptions\n  -v, --verbose           Show full non-sensitive tool output\n      --no-log            Do not write a local run record\n      --version           Show the installed package version\n  -h, --help              Show this help\n`);
+  output.write(`Usage: froe [options] [task...]\n\nRun without a task in an interactive terminal to start a conversation.\n\nOptions:\n  -w, --workspace <path>  Workspace directory (default: current directory)\n      --base-url <url>     OpenAI-compatible API endpoint\n  -m, --model <id>        OpenAI-compatible model (default: gpt-5.6-terra)\n      --reasoning <level>  none, low, medium, high, xhigh, or max\n      --image <path>       Attach a PNG, JPEG, WEBP, or GIF to the first prompt (repeatable)\n  -c, --config <path>     Additional user-controlled JSON configuration\n      --max-turns <n>      Maximum model turns per message\n  -y, --yes               Approve ordinary policy prompts, never sandbox exceptions\n  -v, --verbose           Show full non-sensitive tool output\n      --no-log            Do not write a local run record\n      --version           Show the installed package version\n  -h, --help              Show this help\n`);
 }
 
 main().catch((error: unknown) => {

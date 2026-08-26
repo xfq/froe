@@ -1,9 +1,10 @@
 import { formatInstructions, type ProjectInstruction } from "./instructions.js";
 import { toolDefinitions, type ActionRuntime } from "./action-runtime.js";
-import type { ActionResult, EventSink, ModelProvider, RunEvent, RunOutcome, Verification } from "./types.js";
+import type { ActionResult, EventSink, ModelProvider, PromptImage, RunEvent, RunOutcome, Verification } from "./types.js";
 
 export interface RunRequest {
   task: string;
+  images?: PromptImage[];
   model: ModelProvider;
   runtime: ActionRuntime;
   instructions: ProjectInstruction[];
@@ -28,6 +29,7 @@ export async function runTask(request: RunRequest): Promise<RunOutcome> {
         system,
         tools: toolDefinitions,
         ...(turn === 1 ? { user: request.task } : {}),
+        ...(turn === 1 && request.images !== undefined && request.images.length > 0 ? { images: request.images } : {}),
         ...(request.signal === undefined ? {} : { signal: request.signal }),
       };
       for await (const event of request.model.turn(modelTurn)) {

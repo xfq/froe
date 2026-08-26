@@ -28,10 +28,18 @@ export interface FroeConfig {
 export interface RunOptions {
   workspace: string;
   task?: string;
+  images: PromptImage[];
   config: FroeConfig;
   yes: boolean;
   verbose: boolean;
   noLog: boolean;
+}
+
+export type ImageMediaType = "image/gif" | "image/jpeg" | "image/png" | "image/webp";
+
+export interface PromptImage {
+  data: Uint8Array;
+  mediaType: ImageMediaType;
 }
 
 export interface ToolDefinition {
@@ -70,6 +78,7 @@ export type ModelEvent =
 export interface ModelTurn {
   system: string;
   user?: string;
+  images?: PromptImage[];
   tools: ToolDefinition[];
   signal?: AbortSignal;
 }

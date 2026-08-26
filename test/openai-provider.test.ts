@@ -95,6 +95,48 @@ test("the OpenAI adapter reads OPENAI_BASE_URL", async () => {
   }
 });
 
+test("the OpenAI adapter sends each attached image as input_image content", async () => {
+  let received: Record<string, unknown> | undefined;
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    received = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(responseWithMessage("done")));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Expected a TCP server address");
+    const provider = new OpenAIProvider(defaultConfig, { apiKey: "test-key", baseURL: `http://127.0.0.1:${address.port}/v1` });
+
+    await collect(provider.turn({
+      system: "test system",
+      user: "Inspect these screenshots",
+      images: [
+        { data: Uint8Array.of(1, 2, 3), mediaType: "image/png" },
+        { data: Uint8Array.of(4, 5, 6), mediaType: "image/jpeg" },
+      ],
+      tools: [],
+    }));
+
+    const input = received?.input;
+    assert.equal(Array.isArray(input), true);
+    assert.deepEqual((input as Array<Record<string, unknown>>)[0], {
+      role: "user",
+      content: [
+        { type: "input_text", text: "Inspect these screenshots" },
+        { type: "input_image", detail: "auto", image_url: "data:image/png;base64,AQID" },
+        { type: "input_image", detail: "auto", image_url: "data:image/jpeg;base64,BAUG" },
+      ],
+    });
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
 async function collect(events: AsyncIterable<ModelEvent>): Promise<ModelEvent[]> {
   const collected: ModelEvent[] = [];
   for await (const event of events) collected.push(event);

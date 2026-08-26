@@ -74,6 +74,52 @@ test("a scripted model can patch, validate evidence, and complete a run", async 
   assert.equal(events.at(-1)?.type, "run_finished");
 });
 
+test("a run sends prompt images only with its first model turn", async () => {
+  const root = await mkdtemp(join(tmpdir(), "froe-run-"));
+  const image = { data: Uint8Array.of(1, 2, 3), mediaType: "image/png" as const };
+  const model = new ScriptedModel([
+    (turn) => {
+      assert.deepEqual(turn.images, [image]);
+      return [{
+        type: "action",
+        action: {
+          callId: "read",
+          name: "read_file",
+          arguments: { path: "missing.txt" },
+        },
+      }];
+    },
+    (turn) => {
+      assert.equal(turn.user, undefined);
+      assert.equal(turn.images, undefined);
+      return [{
+        type: "action",
+        action: {
+          callId: "finish",
+          name: "finish",
+          arguments: {
+            outcome: "completed",
+            summary: "Checked the image.",
+            verification: [{ description: "Test fixture", result: "passed" }],
+          },
+        },
+      }];
+    },
+  ]);
+
+  const outcome = await runTask({
+    task: "Review the screenshot",
+    images: [image],
+    model,
+    runtime: await runtime(root),
+    instructions: [],
+    modelName: "scripted",
+    maxTurns: 2,
+  });
+
+  assert.equal(outcome.status, "completed");
+});
+
 test("the /init task is handled as a conversation slash command", async () => {
   const root = await mkdtemp(join(tmpdir(), "froe-run-"));
   const model = new ScriptedModel([(turn) => {
