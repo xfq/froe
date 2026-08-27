@@ -46,10 +46,17 @@ async function main(): Promise<void> {
     render(event);
   };
   const approval = new TerminalApproval(options.yes);
-  const commandSandbox = await createCommandSandbox(options.workspace);
-  const runtime = await ActionRuntime.create(options.workspace, options.config, approval, commandSandbox, {
-    onApprovalRequested: async (request) => sink({ type: "approval_requested", action: request.action, reason: request.reason }),
-  });
+  const commandSandbox = await createCommandSandbox(options.workspace, options.additionalDirectories);
+  const runtime = await ActionRuntime.create(
+    options.workspace,
+    options.config,
+    approval,
+    commandSandbox,
+    {
+      onApprovalRequested: async (request) => sink({ type: "approval_requested", action: request.action, reason: request.reason }),
+    },
+    options.additionalDirectories,
+  );
   const instructions = await discoverProjectInstructions(runtime.workspace);
   const provider = new OpenAIProvider(options.config, credentials);
   const controller = new AbortController();
@@ -100,6 +107,7 @@ async function parseOptions(): Promise<RunOptions> {
     args: process.argv.slice(2),
     options: {
       workspace: { type: "string", short: "w" },
+      "add-dir": { type: "string", multiple: true },
       "base-url": { type: "string" },
       model: { type: "string", short: "m" },
       reasoning: { type: "string" },
@@ -130,6 +138,7 @@ async function parseOptions(): Promise<RunOptions> {
     throw new UsageError("Provide a task as positional text or pipe it through stdin.");
   }
   const workspace = resolve(stringOption(parsed.values.workspace) ?? process.cwd());
+  const additionalDirectories = stringOptions(parsed.values["add-dir"]).map((path) => resolve(path));
   const reasoning = optionalReasoning(stringOption(parsed.values.reasoning));
   const images = await loadPromptImages(stringOptions(parsed.values.image));
   const maxTurns = optionalPositiveInteger(stringOption(parsed.values["max-turns"]), "--max-turns");
@@ -146,6 +155,7 @@ async function parseOptions(): Promise<RunOptions> {
   });
   return {
     workspace,
+    additionalDirectories,
     ...(task === undefined ? {} : { task }),
     images,
     config,
@@ -335,7 +345,7 @@ function optionalPositiveInteger(value: string | undefined, flag: string): numbe
 class UsageError extends Error {}
 
 function printHelp(): void {
-  output.write(`Usage: froe [options] [task...]\n\nRun without a task in an interactive terminal to start a conversation.\n\nOptions:\n  -w, --workspace <path>  Workspace directory (default: current directory)\n      --base-url <url>     OpenAI-compatible API endpoint\n  -m, --model <id>        OpenAI-compatible model (default: gpt-5.6-terra)\n      --reasoning <level>  none, low, medium, high, xhigh, or max\n      --image <path>       Attach a PNG, JPEG, WEBP, or GIF to the first prompt (repeatable)\n  -c, --config <path>     Additional user-controlled JSON configuration\n      --max-turns <n>      Maximum model turns per message\n  -y, --yes               Approve ordinary policy prompts, never sandbox exceptions\n  -v, --verbose           Show full non-sensitive tool output\n      --no-log            Do not write a local run record\n      --version           Show the installed package version\n  -h, --help              Show this help\n`);
+  output.write(`Usage: froe [options] [task...]\n\nRun without a task in an interactive terminal to start a conversation.\n\nOptions:\n  -w, --workspace <path>  Workspace directory (default: current directory)\n      --add-dir <path>     Additional directory with read/write access (repeatable)\n      --base-url <url>     OpenAI-compatible API endpoint\n  -m, --model <id>        OpenAI-compatible model (default: gpt-5.6-terra)\n      --reasoning <level>  none, low, medium, high, xhigh, or max\n      --image <path>       Attach a PNG, JPEG, WEBP, or GIF to the first prompt (repeatable)\n  -c, --config <path>     Additional user-controlled JSON configuration\n      --max-turns <n>      Maximum model turns per message\n  -y, --yes               Approve ordinary policy prompts, never sandbox exceptions\n  -v, --verbose           Show full non-sensitive tool output\n      --no-log            Do not write a local run record\n      --version           Show the installed package version\n  -h, --help              Show this help\n`);
 }
 
 main().catch((error: unknown) => {

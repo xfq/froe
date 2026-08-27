@@ -27,6 +27,7 @@ export interface FroeConfig {
 
 export interface RunOptions {
   workspace: string;
+  additionalDirectories: string[];
   task?: string;
   images: PromptImage[];
   config: FroeConfig;

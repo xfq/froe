@@ -49,7 +49,7 @@ test("CLI prints its package version without starting a run", async () => {
   assert.equal(stderr, "");
 });
 
-test("CLI help documents repeatable image attachments", async () => {
+test("CLI help documents repeatable image attachments and additional directories", async () => {
   const repository = new URL("..", import.meta.url).pathname;
   const tsx = new URL("../node_modules/.bin/tsx", import.meta.url).pathname;
   const { stdout, stderr } = await execFile(tsx, ["src/cli.ts", "--help"], {
@@ -59,4 +59,18 @@ test("CLI help documents repeatable image attachments", async () => {
 
   assert.equal(stdout, "");
   assert.match(stderr, /--image <path>.*repeatable/);
+  assert.match(stderr, /--add-dir <path>.*repeatable/);
+});
+
+test("CLI accepts repeated additional directory options", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+  const repository = new URL("..", import.meta.url).pathname;
+  const tsx = new URL("../node_modules/.bin/tsx", import.meta.url).pathname;
+  const { stdout, stderr } = await execFile(tsx, ["src/cli.ts", "--add-dir", ".", "--add-dir", ".", "--version"], {
+    cwd: repository,
+    encoding: "utf8",
+  });
+
+  assert.equal(stdout, `froe ${manifest.version}\n`);
+  assert.equal(stderr, "");
 });

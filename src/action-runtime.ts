@@ -12,39 +12,39 @@ const maximumSandboxRetries = 3;
 export const toolDefinitions: ToolDefinition[] = [
   {
     name: "list_files",
-    description: "List immediate non-symlink entries in a workspace directory.",
+    description: "List immediate non-symlink entries in an authorized directory.",
     parameters: objectSchema({
-      path: optionalString("Workspace-relative directory, defaults to the workspace root."),
+      path: optionalString("Workspace-relative directory or an absolute path in an additional authorized directory; defaults to the workspace root."),
       maxEntries: optionalInteger("Maximum entries to return."),
     }),
   },
   {
     name: "read_file",
-    description: "Read a UTF-8 text file by line range. Read a file before patching it.",
+    description: "Read a UTF-8 text file by line range from an authorized directory. Read a file before patching it.",
     parameters: objectSchema({
-      path: requiredString("Workspace-relative file path."),
+      path: requiredString("Workspace-relative file path or an absolute path in an additional authorized directory."),
       startLine: optionalInteger("First one-based line, defaults to 1."),
       endLine: optionalInteger("Last one-based line, defaults to the configured maximum."),
     }, ["path"]),
   },
   {
     name: "search",
-    description: "Perform a literal, case-sensitive text search over UTF-8 workspace files.",
+    description: "Perform a literal, case-sensitive text search over UTF-8 files in an authorized directory.",
     parameters: objectSchema({
       query: requiredString("Literal text to find."),
-      path: optionalString("Workspace-relative file or directory, defaults to the root."),
+      path: optionalString("Workspace-relative file or directory, or an absolute path in an additional authorized directory; defaults to the workspace root."),
       maxResults: optionalInteger("Maximum matches to return."),
     }, ["query"]),
   },
   {
     name: "apply_patch",
-    description: "Apply an all-or-nothing batch of precise text replacements. Each oldText must occur exactly once. Use null oldText to create a file and null newText to delete a file.",
+    description: "Apply an all-or-nothing batch of precise text replacements in authorized directories. Each oldText must occur exactly once. Use null oldText to create a file and null newText to delete a file.",
     parameters: objectSchema({
       changes: {
         type: "array",
         minItems: 1,
         items: objectSchema({
-          path: requiredString("Workspace-relative text file path."),
+          path: requiredString("Workspace-relative text file path or an absolute path in an additional authorized directory."),
           oldText: { type: ["string", "null"] },
           newText: { type: ["string", "null"] },
         }, ["path", "oldText", "newText"]),
@@ -53,11 +53,11 @@ export const toolDefinitions: ToolDefinition[] = [
   },
   {
     name: "run_command",
-    description: "Run one executable with an argument array, never through an implicit shell. On macOS, commands automatically run without network access and may write only to the workspace and temporary directory; an OS-denied capability requires user approval before a narrow retry.",
+    description: "Run one executable with an argument array, never through an implicit shell. On macOS, commands automatically run without network access and may write only to authorized directories and the temporary directory; an OS-denied capability requires user approval before a narrow retry.",
     parameters: objectSchema({
       executable: requiredString("Program to execute."),
       args: { type: "array", items: { type: "string" } },
-      cwd: optionalString("Workspace-relative working directory."),
+      cwd: optionalString("Workspace-relative working directory or an absolute path in an additional authorized directory."),
       timeoutMs: optionalInteger("Timeout in milliseconds."),
     }, ["executable"]),
   },
@@ -108,13 +108,15 @@ interface CommandAction {
 
 export class ActionRuntime {
   readonly #workspace: string;
+  readonly #additionalDirectories: string[];
   readonly #config: FroeConfig;
   readonly #approval: ApprovalGate;
   readonly #commandSandbox: CommandSandbox;
   readonly #hooks: ActionRuntimeHooks;
 
-  private constructor(workspace: string, config: FroeConfig, approval: ApprovalGate, commandSandbox: CommandSandbox, hooks: ActionRuntimeHooks) {
+  private constructor(workspace: string, additionalDirectories: string[], config: FroeConfig, approval: ApprovalGate, commandSandbox: CommandSandbox, hooks: ActionRuntimeHooks) {
     this.#workspace = workspace;
+    this.#additionalDirectories = additionalDirectories;
     this.#config = config;
     this.#approval = approval;
     this.#commandSandbox = commandSandbox;
@@ -127,15 +129,26 @@ export class ActionRuntime {
     approval: ApprovalGate,
     commandSandbox: CommandSandbox,
     hooks: ActionRuntimeHooks = {},
+    additionalDirectories: string[] = [],
   ): Promise<ActionRuntime> {
     const root = await realpath(workspace);
     const rootStat = await stat(root);
     if (!rootStat.isDirectory()) throw new Error(`Workspace is not a directory: ${workspace}`);
-    return new ActionRuntime(root, config, approval, commandSandbox, hooks);
+    const additionalRoots = await Promise.all(additionalDirectories.map(async (path) => {
+      const resolved = await realpath(path);
+      const details = await stat(resolved);
+      if (!details.isDirectory()) throw new Error(`Additional directory is not a directory: ${path}`);
+      return resolved;
+    }));
+    return new ActionRuntime(root, [...new Set(additionalRoots)], config, approval, commandSandbox, hooks);
   }
 
   get workspace(): string {
     return this.#workspace;
+  }
+
+  get additionalDirectories(): readonly string[] {
+    return this.#additionalDirectories;
   }
 
   async execute(request: ActionRequest, signal?: AbortSignal): Promise<ActionResult> {
@@ -454,11 +467,13 @@ export class ActionRuntime {
   }
 
   async resolveCandidate(input: string): Promise<string> {
-    if (!input || isAbsolute(input)) throw new ActionError("invalid_path", "Paths must be non-empty and workspace-relative");
-    const normalized = resolve(this.#workspace, input);
+    if (!input) throw new ActionError("invalid_path", "Paths must be non-empty and workspace-relative, or absolute within an additional authorized directory");
+    const normalized = isAbsolute(input) ? resolve(input) : resolve(this.#workspace, input);
     this.assertInside(normalized, input);
-    const suffix = relative(this.#workspace, normalized).split(sep).filter(Boolean);
-    let current = this.#workspace;
+    const root = this.authorizedRoot(normalized);
+    if (root === undefined) throw new ActionError("workspace_escape", `Path escapes the workspace: ${input}`);
+    const suffix = relative(root, normalized).split(sep).filter(Boolean);
+    let current = root;
     for (const part of suffix) {
       current = join(current, part);
       try {
@@ -500,13 +515,22 @@ export class ActionRuntime {
   }
 
   toRelative(path: string): string {
-    return relative(this.#workspace, path) || ".";
+    if (this.isInside(this.#workspace, path)) return relative(this.#workspace, path) || ".";
+    return path;
   }
 
   assertInside(path: string, original: string): void {
-    const value = relative(this.#workspace, path);
-    if (value === "" || (!value.startsWith(`..${sep}`) && value !== ".." && !isAbsolute(value))) return;
+    if (this.authorizedRoot(path) !== undefined) return;
     throw new ActionError("workspace_escape", `Path escapes the workspace: ${original}`);
+  }
+
+  authorizedRoot(path: string): string | undefined {
+    return [this.#workspace, ...this.#additionalDirectories].find((root) => this.isInside(root, path));
+  }
+
+  isInside(parent: string, child: string): boolean {
+    const value = relative(parent, child);
+    return value === "" || (!value.startsWith(`..${sep}`) && value !== ".." && !isAbsolute(value));
   }
 }
 

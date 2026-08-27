@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -91,6 +91,43 @@ test("workspace escapes and symlinks are rejected", async () => {
   const linked = await instance.execute(action("read_file", { path: "escape.txt" }));
   assert.equal(linked.ok, false);
   assert.deepEqual(linked.output, { code: "symlink_forbidden", message: "Path contains a symbolic link: escape.txt" });
+});
+
+test("additional directories allow absolute file paths and command working directories", async () => {
+  const root = await workspace();
+  const additionalDirectory = await realpath(await workspace());
+  const outside = await workspace();
+  const additionalFile = join(additionalDirectory, "shared.txt");
+  await writeFile(additionalFile, "before\n");
+  let receivedCommand: CommandInvocation | undefined;
+  const commandSandbox: CommandSandbox = {
+    async run(command): Promise<SandboxedCommandResult> {
+      receivedCommand = command;
+      return { exitCode: 0, signal: null, timedOut: false, output: "ok", truncated: false };
+    },
+  };
+  const instance = await ActionRuntime.create(root, defaultConfig, new FixedApproval(true), commandSandbox, {}, [additionalDirectory]);
+
+  assert.deepEqual(instance.additionalDirectories, [additionalDirectory]);
+
+  const read = await instance.execute(action("read_file", { path: additionalFile }));
+  assert.equal(output(read).text, "before\n");
+
+  const patched = await instance.execute(action("apply_patch", {
+    changes: [{ path: additionalFile, oldText: "before", newText: "after" }],
+  }));
+  assert.equal(patched.ok, true, JSON.stringify(patched.output));
+  assert.equal(await readFile(additionalFile, "utf8"), "after\n");
+
+  const command = await instance.execute(action("run_command", { executable: "custom-tool", cwd: additionalDirectory }));
+  assert.equal(output(command).cwd, additionalDirectory);
+  assert.equal(receivedCommand?.cwd, additionalDirectory);
+
+  const denied = await instance.execute(action("read_file", { path: join(outside, "secret.txt") }));
+  assert.deepEqual(denied.output, {
+    code: "workspace_escape",
+    message: `Path escapes the workspace: ${join(outside, "secret.txt")}`,
+  });
 });
 
 test("search returns normalized, line-oriented matches", async () => {

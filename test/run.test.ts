@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -115,6 +115,37 @@ test("a run sends prompt images only with its first model turn", async () => {
     instructions: [],
     modelName: "scripted",
     maxTurns: 2,
+  });
+
+  assert.equal(outcome.status, "completed");
+});
+
+test("a run tells the model about additional authorized directories", async () => {
+  const root = await mkdtemp(join(tmpdir(), "froe-run-"));
+  const additionalDirectory = await realpath(await mkdtemp(join(tmpdir(), "froe-run-additional-")));
+  const model = new ScriptedModel([(turn) => {
+    assert.ok(turn.system.includes(`- ${additionalDirectory}`));
+    return [{
+      type: "action",
+      action: {
+        callId: "finish",
+        name: "finish",
+        arguments: {
+          outcome: "completed",
+          summary: "Confirmed the authorized directory.",
+          verification: [{ description: "Prompt listed the directory", result: "passed" }],
+        },
+      },
+    }];
+  }]);
+
+  const outcome = await runTask({
+    task: "Inspect the additional directory",
+    model,
+    runtime: await ActionRuntime.create(root, defaultConfig, new Approval(true), new NoCommands(), {}, [additionalDirectory]),
+    instructions: [],
+    modelName: "scripted",
+    maxTurns: 1,
   });
 
   assert.equal(outcome.status, "completed");

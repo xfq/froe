@@ -80,6 +80,7 @@ Pass a task as arguments or pipe it through stdin. Use `--workspace` only when t
 froe "Add validation for empty usernames"
 git diff | froe "Review this diff and fix the most important defect"
 froe --workspace ../my-project "Add validation for empty usernames"
+froe --workspace ../my-project --add-dir ../shared --add-dir ../generated "Update the generated client"
 ```
 
 ## Configuration
@@ -118,9 +119,9 @@ The provider must support the OpenAI Responses API, including function calling. 
 
 ## Safety model
 
-froe can read and search the Workspace, apply exact text patches, and run ordinary commands automatically. On macOS, every spawned command runs under a generated Seatbelt profile that can read only the Workspace, its temporary directory, required system runtime locations, and the resolved Node toolchain; it can write only to the Workspace and temporary directory, and cannot access the network. The child receives the temporary directory as its home directory, so it cannot discover user credentials through `HOME`. Froe itself, its run record, approval prompt, credentials, and OpenAI connection stay outside that child-process sandbox.
+froe can read and search the Workspace, apply exact text patches, and run ordinary commands automatically. Use repeatable `--add-dir <path>` flags to grant the run read/write access to named directories outside the Workspace; local file actions use absolute paths for those directories. On macOS, every spawned command runs under a generated Seatbelt profile that can read only the Workspace, declared additional directories, its temporary directory, required system runtime locations, and the resolved Node toolchain; it can write only to the Workspace, declared additional directories, and temporary directory, and cannot access the network. The child receives the temporary directory as its home directory, so it cannot discover user credentials through `HOME`. Froe itself, its run record, approval prompt, credentials, and OpenAI connection stay outside that child-process sandbox.
 
-froe only edits UTF-8 text files inside the Workspace. It rejects symbolic links, files outside the Workspace, binary data, mode changes, and renames. Existing Git changes are allowed; froe never commits, resets, or rolls them back.
+froe only edits UTF-8 text files inside the Workspace or directories explicitly passed through `--add-dir`. It rejects symbolic links, undeclared paths, binary data, mode changes, and renames. Existing Git changes are allowed; froe never commits, resets, or rolls them back.
 
 ## Observability and data
 

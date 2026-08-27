@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { access, realpath } from "node:fs/promises";
+import { access, realpath, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -67,23 +67,30 @@ export class CommandSandboxError extends Error {
   }
 }
 
-export async function createCommandSandbox(workspace: string): Promise<CommandSandbox> {
+export async function createCommandSandbox(workspace: string, additionalDirectories: string[] = []): Promise<CommandSandbox> {
   if (process.platform !== "darwin") return new UnavailableCommandSandbox(process.platform);
-  return MacOSSeatbeltCommandSandbox.create(workspace);
+  return MacOSSeatbeltCommandSandbox.create(workspace, tmpdir(), additionalDirectories);
 }
 
 export class MacOSSeatbeltCommandSandbox implements CommandSandbox {
   readonly #workspace: string;
   readonly #temporaryDirectory: string;
+  readonly #additionalDirectories: string[];
 
-  private constructor(workspace: string, temporaryDirectory: string) {
+  private constructor(workspace: string, temporaryDirectory: string, additionalDirectories: string[]) {
     this.#workspace = workspace;
     this.#temporaryDirectory = temporaryDirectory;
+    this.#additionalDirectories = additionalDirectories;
   }
 
-  static async create(workspace: string, temporaryDirectory = tmpdir()): Promise<MacOSSeatbeltCommandSandbox> {
+  static async create(workspace: string, temporaryDirectory = tmpdir(), additionalDirectories: string[] = []): Promise<MacOSSeatbeltCommandSandbox> {
     await Promise.all([access(sandboxExecutable), access(logExecutable)]);
-    return new MacOSSeatbeltCommandSandbox(await realpath(workspace), await realpath(temporaryDirectory));
+    const [canonicalWorkspace, canonicalTemporaryDirectory, canonicalAdditionalDirectories] = await Promise.all([
+      realpath(workspace),
+      realpath(temporaryDirectory),
+      canonicalDirectories(additionalDirectories),
+    ]);
+    return new MacOSSeatbeltCommandSandbox(canonicalWorkspace, canonicalTemporaryDirectory, canonicalAdditionalDirectories);
   }
 
   async run(command: CommandInvocation, exceptions: SandboxException[] = []): Promise<SandboxedCommandResult> {
@@ -94,7 +101,7 @@ export class MacOSSeatbeltCommandSandbox implements CommandSandbox {
     try {
       result = await captureProcess({
         executable: sandboxExecutable,
-        args: ["-p", seatbeltProfile(this.#workspace, this.#temporaryDirectory, marker, readRoots, exceptions), command.executable, ...command.args],
+        args: ["-p", seatbeltProfile(this.#workspace, this.#additionalDirectories, this.#temporaryDirectory, marker, readRoots, exceptions), command.executable, ...command.args],
         cwd: command.cwd,
         env: { ...command.env, HOME: this.#temporaryDirectory, TMPDIR: this.#temporaryDirectory },
         timeoutMs: command.timeoutMs,
@@ -290,6 +297,7 @@ function captureProcess(command: CommandInvocation): Promise<CapturedProcessResu
 
 function seatbeltProfile(
   workspace: string,
+  additionalDirectories: string[],
   temporaryDirectory: string,
   marker: string,
   readRoots: string[],
@@ -305,9 +313,8 @@ function seatbeltProfile(
     ...systemMetadataRoots.map((path) => `(allow file-read-metadata (subpath ${profileString(path)}))`),
     `(allow file-read-metadata (literal ${profileString(process.env.HOME ?? "/var/empty")}))`,
     ...uniquePaths([...systemRuntimeFiles, userRuntimeFile()]).map((path) => `(allow file-read* (literal ${profileString(path)}))`),
-    ...uniquePaths([workspace, temporaryDirectory, ...systemReadRoots, ...readRoots]).map((path) => `(allow file-read* (subpath ${profileString(path)}))`),
-    `(allow file-write* (subpath ${profileString(workspace)}))`,
-    `(allow file-write* (subpath ${profileString(temporaryDirectory)}))`,
+    ...uniquePaths([workspace, ...additionalDirectories, temporaryDirectory, ...systemReadRoots, ...readRoots]).map((path) => `(allow file-read* (subpath ${profileString(path)}))`),
+    ...uniquePaths([workspace, ...additionalDirectories, temporaryDirectory]).map((path) => `(allow file-write* (subpath ${profileString(path)}))`),
     '(allow file-write-data (literal "/dev/dtracehelper") (literal "/dev/null"))',
   ];
   for (const exception of uniqueExceptions(exceptions)) {
@@ -366,6 +373,17 @@ function trustedToolchainRoot(path: string): string | undefined {
 function isInside(parent: string, child: string): boolean {
   const path = relative(parent, child);
   return path === "" || (!path.startsWith(`..${sep}`) && path !== ".." && !isAbsolute(path));
+}
+
+async function canonicalDirectories(paths: string[]): Promise<string[]> {
+  const directories = await Promise.all(paths.map(async (path) => {
+    const canonicalPath = await realpath(path);
+    if (!(await stat(canonicalPath)).isDirectory()) {
+      throw new CommandSandboxError("invalid_additional_directory", `Additional directory is not a directory: ${path}`);
+    }
+    return canonicalPath;
+  }));
+  return uniquePaths(directories);
 }
 
 function uniquePaths(paths: string[]): string[] {

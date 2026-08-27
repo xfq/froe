@@ -14,14 +14,14 @@ The current implementation has a small boundary:
 
 - one task and one model provider per run, with one provider reused across the runs in an interactive conversation;
 - one production provider, the OpenAI Responses API, behind a provider-neutral interface;
-- local, workspace-scoped actions;
+- local actions scoped to one Workspace and explicitly declared additional directories;
 - automatic macOS Seatbelt containment for spawned commands, with interactive approval for narrow exceptions;
 - in-memory model continuation state, with an optional append-only invocation record outside the workspace;
 - no resume protocol or long-lived daemon.
 
 ## System overview
 
-The CLI is the composition root. It reads user-selected PNG, JPEG, WEBP, or non-animated GIF attachments from repeatable `--image` options, verifies the current Responses API request limits before a run starts, and passes them only to the first prompt (or first conversation message). The conversation module sequences user messages into bounded runs while preserving one model provider and action runtime. Its terminal adapter owns line editing and Tab completion for the supported slash commands: `/init`, which remains a normal run task, and `/exit`, which closes the conversation without a run. The three deepest modules remain the run loop, which owns model/action orchestration and completion semantics; the action runtime, which owns workspace effects and approval policy; and the command sandbox, which owns child-process containment and lifecycle. Provider-specific translation, persistence, configuration, credentials, and project-instruction discovery sit behind smaller seams.
+The CLI is the composition root. It reads user-selected PNG, JPEG, WEBP, or non-animated GIF attachments from repeatable `--image` options and accepts repeatable `--add-dir` paths that extend the run's explicit filesystem authority alongside its primary Workspace. It verifies the current Responses API request limits before a run starts, and passes attachments only to the first prompt (or first conversation message). The conversation module sequences user messages into bounded runs while preserving one model provider and action runtime. Its terminal adapter owns line editing and Tab completion for the supported slash commands: `/init`, which remains a normal run task, and `/exit`, which closes the conversation without a run. The three deepest modules remain the run loop, which owns model/action orchestration and completion semantics; the action runtime, which owns authorized-directory effects and approval policy; and the command sandbox, which owns child-process containment and lifecycle. Provider-specific translation, persistence, configuration, credentials, and project-instruction discovery sit behind smaller seams.
 
 ## Action runtime
 
@@ -29,11 +29,11 @@ The model sees six actions. Their JSON schemas and implementations live together
 
 | Action | Behavior |
 | --- | --- |
-| `list_files` | Lists one directory level, sorted, while hiding symlinks and ignored directories. |
-| `read_file` | Reads bounded lines and bytes from one UTF-8 text file. |
+| `list_files` | Lists one directory level, sorted, while hiding symlinks and ignored directories. It accepts Workspace-relative paths or absolute paths beneath a declared additional directory. |
+| `read_file` | Reads bounded lines and bytes from one UTF-8 text file in an authorized directory. |
 | `search` | Performs literal, case-sensitive search with `rg`; falls back to a Node traversal if `rg` is unavailable or unusable. |
-| `apply_patch` | Creates, replaces, or deletes UTF-8 text files through exact-match changes. A batch validates before mutation and stages writes before replacement. |
-| `run_command` | Runs one executable with an argument array through `CommandSandbox`, with a workspace-contained working directory, bounded output, and a timeout. On macOS the child receives a temporary `HOME` and can read only the Workspace, temporary directory, system runtime, and resolved supported toolchains. It never invokes a shell implicitly. |
+| `apply_patch` | Creates, replaces, or deletes UTF-8 text files in authorized directories through exact-match changes. A batch validates before mutation and stages writes before replacement. |
+| `run_command` | Runs one executable with an argument array through `CommandSandbox`, with an authorized-directory working directory, bounded output, and a timeout. On macOS the child receives a temporary `HOME` and can read only the Workspace, declared additional directories, temporary directory, system runtime, and resolved supported toolchains. It never invokes a shell implicitly. |
 | `finish` | Parses the model's proposed outcome; the run loop performs the final semantic checks. |
 
 ### Approval boundary

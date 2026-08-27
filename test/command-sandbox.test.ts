@@ -21,10 +21,18 @@ test("macOS Seatbelt allows workspace and temporary writes and retries other wri
 }, async () => {
   const workspace = await realpath(await mkdtemp(join(tmpdir(), "froe-seatbelt-workspace-")));
   const temporaryDirectory = await realpath(await mkdtemp(join(tmpdir(), "froe-seatbelt-temporary-")));
+  const firstAdditionalDirectory = await realpath(await mkdtemp(join(tmpdir(), "froe-seatbelt-additional-one-")));
+  const secondAdditionalDirectory = await realpath(await mkdtemp(join(tmpdir(), "froe-seatbelt-additional-two-")));
   const outside = await realpath(await mkdtemp(join(tmpdir(), "froe-seatbelt-outside-")));
-  const sandbox = await MacOSSeatbeltCommandSandbox.create(workspace, temporaryDirectory);
+  const sandbox = await MacOSSeatbeltCommandSandbox.create(
+    workspace,
+    temporaryDirectory,
+    [firstAdditionalDirectory, secondAdditionalDirectory],
+  );
   const insidePath = join(workspace, "inside.txt");
   const temporaryPath = join(temporaryDirectory, "temporary.txt");
+  const firstAdditionalPath = join(firstAdditionalDirectory, "first-additional.txt");
+  const secondAdditionalPath = join(secondAdditionalDirectory, "second-additional.txt");
   const outsidePath = join(outside, "outside.txt");
 
   const allowed = await sandbox.run(invocation("/usr/bin/touch", [insidePath], workspace));
@@ -36,6 +44,17 @@ test("macOS Seatbelt allows workspace and temporary writes and retries other wri
   assert.equal(temporary.exitCode, 0, JSON.stringify(temporary));
   assert.equal(temporary.denial, undefined);
   await access(temporaryPath);
+
+  const firstAdditional = await sandbox.run(invocation("/usr/bin/touch", [firstAdditionalPath], workspace));
+  assert.equal(firstAdditional.exitCode, 0, JSON.stringify(firstAdditional));
+  assert.equal(firstAdditional.denial, undefined);
+  await access(firstAdditionalPath);
+
+  await writeFile(secondAdditionalPath, "additional-read", "utf8");
+  const secondAdditional = await sandbox.run(invocation("/bin/cat", [secondAdditionalPath], workspace));
+  assert.equal(secondAdditional.exitCode, 0, JSON.stringify(secondAdditional));
+  assert.equal(secondAdditional.output, "additional-read");
+  assert.equal(secondAdditional.denial, undefined);
 
   const blocked = await sandbox.run(invocation("/usr/bin/touch", [outsidePath], workspace));
   assert.notEqual(blocked.denial, undefined);
