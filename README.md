@@ -10,6 +10,7 @@ In the first release:
 
 - One-shot tasks and interactive conversations
 - OpenAI Responses API through the official SDK
+- Automatic updates for npm-managed global installations
 - Local tools for listing, reading, searching, patching, and validating code
 - Automatic macOS Seatbelt containment for spawned commands
 - Explicit approval for destructive actions and narrow sandbox exceptions
@@ -23,6 +24,8 @@ Requires Node.js 22+. Command execution currently requires macOS; on other opera
 npm install --global @xfq/froe
 froe --help
 ```
+
+Global npm installations check for a newer stable release at most once every 24 hours and install it before continuing. The current invocation is already loaded, so it finishes with its starting version and the next invocation uses the update. Source checkouts, `npx` runs, linked packages, and other installation methods are never modified automatically. An update failure is reported but does not block the requested coding task; use `--no-update` to skip the check once.
 
 To try froe without installing it globally, use:
 
@@ -97,6 +100,7 @@ Example user configuration:
 {
   "$schema": "./froe.config.schema.json",
   "baseURL": "https://api.example.com/v1",
+  "autoUpdate": true,
   "model": "gpt-5.6-terra",
   "reasoning": "medium",
   "compactThresholdTokens": 200000,
@@ -116,7 +120,7 @@ OPENAI_API_KEY="..." OPENAI_BASE_URL="https://api.example.com/v1" \
   froe --model "provider-model-id" "Inspect this repository"
 ```
 
-The provider must support the OpenAI Responses API, including function calling. OpenAI server-side context compaction starts at 200,000 tokens by default. Set `compactThresholdTokens` to a positive integer in user configuration to change the threshold, or to `null` for a compatible endpoint that does not support `context_management`. Workspace configuration may set only `model` and `limits`; it cannot select an API endpoint, control compaction, pass environment variables, or weaken approvals. Setting `OPENAI_API_KEY` bypasses the saved connection; pair it with `OPENAI_BASE_URL` for a compatible endpoint, or froe uses the default OpenAI base URL. `--base-url` and user configuration override either Base URL. Credentials are never read from workspace configuration or `.env` files. See the [OpenAI compaction guide](https://developers.openai.com/api/docs/guides/compaction).
+The provider must support the OpenAI Responses API, including function calling. OpenAI server-side context compaction starts at 200,000 tokens by default. Set `compactThresholdTokens` to a positive integer in user configuration to change the threshold, or to `null` for a compatible endpoint that does not support `context_management`. Set `autoUpdate` to `false` in user configuration to disable automatic updates. Workspace configuration may set only `model` and `limits`; it cannot select an API endpoint, control compaction or updates, pass environment variables, or weaken approvals. Setting `OPENAI_API_KEY` bypasses the saved connection; pair it with `OPENAI_BASE_URL` for a compatible endpoint, or froe uses the default OpenAI base URL. `--base-url` and user configuration override either Base URL. Credentials are never read from workspace configuration or `.env` files. See the [OpenAI compaction guide](https://developers.openai.com/api/docs/guides/compaction).
 
 ## Safety model
 
@@ -127,6 +131,8 @@ froe only edits UTF-8 text files inside the Workspace or directories explicitly 
 ## Observability and data
 
 Each CLI invocation writes a JSONL record to `$XDG_STATE_HOME/froe/runs` or `~/.local/state/froe/runs` unless `--no-log` is used. An interactive conversation records each of its bounded runs in the same file. Metadata records let a person reconstruct the run's action sequence, safe action summaries, result status, approval reasons, and final outcome with verification. They omit source content, patch bodies, tool output, and model text by default; set `logging` to `full` only for local debugging.
+
+Automatic update checks store only their last-check timestamp in `$XDG_STATE_HOME/froe/update.json`, or `~/.local/state/froe/update.json` by default.
 
 The OpenAI adapter sends `store: false` and retains the current CLI conversation's continuation state in memory. When server-side compaction returns a checkpoint, froe discards the older in-memory continuation and records a safe `context_compacted` event containing only item counts and the configured threshold. The opaque checkpoint is never copied into the run record. Conversations cannot be resumed after the process exits. See [OpenAI's data controls documentation](https://developers.openai.com/api/docs/guides/your-data#default-usage-policies-by-endpoint) for the distinction between response storage and API abuse-monitoring retention.
 

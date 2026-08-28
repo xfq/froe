@@ -6,6 +6,10 @@
   "properties": {
     "provider": { "const": "openai" },
     "baseURL": { "type": "string", "format": "uri" },
+    "autoUpdate": {
+      "type": "boolean",
+      "description": "Automatically check for and install newer stable npm releases."
+    },
     "model": { "type": "string" },
     "reasoning": {
       "enum": ["none", "low", "medium", "high", "xhigh", "max"]

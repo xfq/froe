@@ -21,7 +21,7 @@ The current implementation has a small boundary:
 
 ## System overview
 
-The CLI is the composition root. It reads user-selected PNG, JPEG, WEBP, or non-animated GIF attachments from repeatable `--image` options and accepts repeatable `--add-dir` paths that extend the run's explicit filesystem authority alongside its primary Workspace. It verifies the current Responses API request limits before a run starts, and passes attachments only to the first prompt (or first conversation message). The conversation module sequences user messages into bounded runs while preserving one model provider and action runtime. Its terminal adapter owns line editing and Tab completion for the supported slash commands: `/init`, which remains a normal run task, and `/exit`, which closes the conversation without a run. The three deepest modules remain the run loop, which owns model/action orchestration and completion semantics; the action runtime, which owns authorized-directory effects and approval policy; and the command sandbox, which owns child-process containment and lifecycle. Provider-specific translation, persistence, configuration, credentials, and project-instruction discovery sit behind smaller seams.
+The CLI is the composition root. Before creating credentials, run records, or an action runtime, it lets the updater check npm-managed global installations for a newer stable release. It reads user-selected PNG, JPEG, WEBP, or non-animated GIF attachments from repeatable `--image` options and accepts repeatable `--add-dir` paths that extend the run's explicit filesystem authority alongside its primary Workspace. It verifies the current Responses API request limits before a run starts, and passes attachments only to the first prompt (or first conversation message). The conversation module sequences user messages into bounded runs while preserving one model provider and action runtime. Its terminal adapter owns line editing and Tab completion for the supported slash commands: `/init`, which remains a normal run task, and `/exit`, which closes the conversation without a run. The three deepest modules remain the run loop, which owns model/action orchestration and completion semantics; the action runtime, which owns authorized-directory effects and approval policy; and the command sandbox, which owns child-process containment and lifecycle. Provider-specific translation, persistence, configuration, credentials, automatic updates, and project-instruction discovery sit behind smaller seams.
 
 The OpenAI adapter requests server-side context compaction at a user-selected threshold. When the provider returns a compaction item, the adapter replaces all earlier continuation input with the checkpoint and subsequent output items, then emits a provider-neutral audit event with counts and the configured threshold.
 
@@ -56,6 +56,12 @@ Configuration merges from lowest to highest precedence:
 4. an explicit user-controlled file passed with `--config`;
 5. CLI overrides.
 
+Automatic updates are enabled by default and can be disabled only by user configuration or the invocation's `--no-update` flag. Workspace configuration cannot control installation behavior.
+
+### Automatic updates
+
+[`src/updater.ts`](./src/updater.ts) owns update throttling, stable semantic-version comparison, npm installation detection, registry lookup, and installation. It checks at most once every 24 hours and only changes a real npm global package directory matching the running package. Source checkouts, `npx` caches, linked packages, and installations managed by another mechanism are skipped. The current invocation is already loaded and continues with its starting version after a successful update; the next invocation uses the new package. A check or installation failure is reported to the terminal and does not block the coding task.
+
 ### Model continuation and compaction
 
 The OpenAI adapter sends `store: false` and requests server-side compaction at 200,000 tokens by default. When a response contains a compaction checkpoint, the adapter discards all earlier in-memory continuation items and retains the checkpoint plus subsequent output. The emitted `context_compacted` event contains only the previous and retained item counts and the configured threshold. Neither the opaque checkpoint nor source-bearing model history is written to terminal output or the run record.
@@ -76,6 +82,7 @@ The automated suite tests behavior at the deepest public seams:
 - [`test/openai-provider.test.ts`](./test/openai-provider.test.ts) uses a local fake HTTP server to verify Responses API translation, configurable server-side compaction, and bounded client-side continuation without a real API call;
 - [`test/recorder.test.ts`](./test/recorder.test.ts) verifies append-only recording of provider-neutral context-compaction metadata;
 - [`test/credentials.test.ts`](./test/credentials.test.ts) verifies credential precedence, prompting, migration, validation, and file permissions.
+- [`test/updater.test.ts`](./test/updater.test.ts) verifies installation eligibility, throttling, semantic-version policy, non-blocking failures, and private update state.
 
 The normal local validation sequence is:
 

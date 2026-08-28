@@ -17,6 +17,7 @@ export interface FroeConfig {
   provider: "openai";
   /** Optional OpenAI-compatible API endpoint. */
   baseURL?: string;
+  autoUpdate: boolean;
   model: string;
   reasoning: ReasoningEffort;
   compactThresholdTokens: number | null;

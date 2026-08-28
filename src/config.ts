@@ -8,6 +8,7 @@ const logValues = new Set<LogMode>(["metadata", "full"]);
 
 export const defaultConfig: FroeConfig = {
   provider: "openai",
+  autoUpdate: true,
   model: "gpt-5.6-terra",
   reasoning: "medium",
   compactThresholdTokens: 200_000,
@@ -27,6 +28,7 @@ type ConfigLayer = Partial<Omit<FroeConfig, "limits">> & { limits?: Partial<Limi
 
 export interface ConfigOverrides {
   baseURL?: string;
+  autoUpdate?: boolean;
   model?: string;
   reasoning?: ReasoningEffort;
   maxTurns?: number;
@@ -67,6 +69,7 @@ export function mergeConfig(
     }
     if (layer.model !== undefined) merged.model = layer.model;
     if ("baseURL" in layer && layer.baseURL !== undefined) merged.baseURL = layer.baseURL;
+    if ("autoUpdate" in layer && layer.autoUpdate !== undefined) merged.autoUpdate = layer.autoUpdate;
     if (layer.reasoning !== undefined) merged.reasoning = layer.reasoning;
     if ("compactThresholdTokens" in layer && layer.compactThresholdTokens !== undefined) {
       merged.compactThresholdTokens = layer.compactThresholdTokens;
@@ -104,9 +107,9 @@ async function readConfig(path: string, scope: "user" | "workspace"): Promise<Co
 
 function parseLayer(value: unknown, path: string, scope: "user" | "workspace"): ConfigLayer {
   const object = objectValue(value, path);
-  assertOnlyKeys(object, ["provider", "baseURL", "model", "reasoning", "compactThresholdTokens", "maxTurns", "logging", "limits", "commandEnv"], path);
+  assertOnlyKeys(object, ["provider", "baseURL", "autoUpdate", "model", "reasoning", "compactThresholdTokens", "maxTurns", "logging", "limits", "commandEnv"], path);
   if (scope === "workspace") {
-    const restricted = ["provider", "baseURL", "reasoning", "compactThresholdTokens", "maxTurns", "logging", "commandEnv"].find((key) => object[key] !== undefined);
+    const restricted = ["provider", "baseURL", "autoUpdate", "reasoning", "compactThresholdTokens", "maxTurns", "logging", "commandEnv"].find((key) => object[key] !== undefined);
     if (restricted !== undefined) throw new Error(`${path}.${restricted} is allowed only in user configuration`);
   }
   const layer: ConfigLayer = {};
@@ -116,6 +119,7 @@ function parseLayer(value: unknown, path: string, scope: "user" | "workspace"): 
     layer.provider = "openai";
   }
   if (object.baseURL !== undefined) layer.baseURL = urlValue(object.baseURL, `${path}.baseURL`);
+  if (object.autoUpdate !== undefined) layer.autoUpdate = booleanValue(object.autoUpdate, `${path}.autoUpdate`);
   if (object.model !== undefined) layer.model = stringValue(object.model, `${path}.model`);
   if (object.reasoning !== undefined) {
     const reasoning = stringValue(object.reasoning, `${path}.reasoning`);
@@ -151,6 +155,7 @@ function parseLayer(value: unknown, path: string, scope: "user" | "workspace"): 
 function validateResolvedConfig(config: FroeConfig): void {
   if (config.provider !== "openai") throw new Error("Only the openai provider is implemented in this release");
   if (config.baseURL !== undefined) urlValue(config.baseURL, "baseURL");
+  booleanValue(config.autoUpdate, "autoUpdate");
   if (!config.model.trim()) throw new Error("model cannot be empty");
   if (!reasoningValues.has(config.reasoning)) throw new Error("reasoning is not supported");
   if (config.compactThresholdTokens !== null) {
@@ -176,6 +181,11 @@ function assertOnlyKeys(object: Record<string, unknown>, allowed: string[], path
 
 function stringValue(value: unknown, path: string): string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${path} must be a non-empty string`);
+  return value;
+}
+
+function booleanValue(value: unknown, path: string): boolean {
+  if (typeof value !== "boolean") throw new Error(`${path} must be a boolean`);
   return value;
 }
 

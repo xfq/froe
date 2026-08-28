@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stderr as output, stdout } from "node:process";
 import type { ReadStream, WriteStream } from "node:tty";
+import { fileURLToPath } from "node:url";
 import { ActionRuntime, type ApprovalGate, type ApprovalRequest } from "./action-runtime.js";
 import { formatActionDetails, formatApprovalPrompt, redactSensitiveText } from "./action-summary.js";
 import { createCommandSandbox } from "./command-sandbox.js";
@@ -18,12 +19,29 @@ import { RunRecorder } from "./recorder.js";
 import { runTask } from "./run.js";
 import { terminalMessages } from "./terminal-conversation.js";
 import type { EventSink, ReasoningEffort, RunEvent, RunOptions } from "./types.js";
+import { maybeAutoUpdate } from "./updater.js";
 
 const reasoningValues = new Set<ReasoningEffort>(["none", "low", "medium", "high", "xhigh", "max"]);
+const packageName = "@xfq/froe";
+const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageVersion = await readPackageVersion();
 
 async function main(): Promise<void> {
   const options = await parseOptions();
+  const update = await maybeAutoUpdate({
+    enabled: options.config.autoUpdate,
+    packageName,
+    packageRoot,
+    currentVersion: packageVersion,
+    onUpdateAvailable: (currentVersion, latestVersion) => {
+      output.write(`Updating froe ${currentVersion} → ${latestVersion}...\n`);
+    },
+  });
+  if (update.status === "updated") {
+    output.write(`Updated froe to ${update.version}; the new version will be used on the next invocation.\n`);
+  } else if (update.status === "failed") {
+    output.write(`froe: automatic update ${update.phase} failed; continuing with ${packageVersion}.\n`);
+  }
   const conversationMode = options.task === undefined;
   const credentials = await resolveOpenAICredentials({
     ...(process.env.OPENAI_API_KEY === undefined ? {} : { environmentApiKey: process.env.OPENAI_API_KEY }),
@@ -118,6 +136,7 @@ async function parseOptions(): Promise<RunOptions> {
       yes: { type: "boolean", short: "y", default: false },
       verbose: { type: "boolean", short: "v", default: false },
       "no-log": { type: "boolean", default: false },
+      "no-update": { type: "boolean", default: false },
       version: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -148,6 +167,7 @@ async function parseOptions(): Promise<RunOptions> {
     workspace,
     ...(explicitConfigPath === undefined ? {} : { configPath: explicitConfigPath }),
     overrides: {
+      ...(parsed.values["no-update"] ? { autoUpdate: false } : {}),
       ...(stringOption(parsed.values["base-url"]) === undefined ? {} : { baseURL: stringOption(parsed.values["base-url"]) as string }),
       ...(stringOption(parsed.values.model) === undefined ? {} : { model: stringOption(parsed.values.model) as string }),
       ...(reasoning === undefined ? {} : { reasoning }),
@@ -349,7 +369,7 @@ function optionalPositiveInteger(value: string | undefined, flag: string): numbe
 class UsageError extends Error {}
 
 function printHelp(): void {
-  output.write(`Usage: froe [options] [task...]\n\nRun without a task in an interactive terminal to start a conversation.\n\nOptions:\n  -w, --workspace <path>  Workspace directory (default: current directory)\n      --add-dir <path>     Additional directory with read/write access (repeatable)\n      --base-url <url>     OpenAI-compatible API endpoint\n  -m, --model <id>        OpenAI-compatible model (default: gpt-5.6-terra)\n      --reasoning <level>  none, low, medium, high, xhigh, or max\n      --image <path>       Attach a PNG, JPEG, WEBP, or GIF to the first prompt (repeatable)\n  -c, --config <path>     Additional user-controlled JSON configuration\n      --max-turns <n>      Maximum model turns per message\n  -y, --yes               Approve ordinary policy prompts, never sandbox exceptions\n  -v, --verbose           Show full non-sensitive tool output\n      --no-log            Do not write a local run record\n      --version           Show the installed package version\n  -h, --help              Show this help\n`);
+  output.write(`Usage: froe [options] [task...]\n\nRun without a task in an interactive terminal to start a conversation.\n\nOptions:\n  -w, --workspace <path>  Workspace directory (default: current directory)\n      --add-dir <path>     Additional directory with read/write access (repeatable)\n      --base-url <url>     OpenAI-compatible API endpoint\n  -m, --model <id>        OpenAI-compatible model (default: gpt-5.6-terra)\n      --reasoning <level>  none, low, medium, high, xhigh, or max\n      --image <path>       Attach a PNG, JPEG, WEBP, or GIF to the first prompt (repeatable)\n  -c, --config <path>     Additional user-controlled JSON configuration\n      --max-turns <n>      Maximum model turns per message\n  -y, --yes               Approve ordinary policy prompts, never sandbox exceptions\n  -v, --verbose           Show full non-sensitive tool output\n      --no-log            Do not write a local run record\n      --no-update         Skip the automatic update check for this invocation\n      --version           Show the installed package version\n  -h, --help              Show this help\n`);
 }
 
 main().catch((error: unknown) => {
