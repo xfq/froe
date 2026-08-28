@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Reference for Froe command-line options and interactive slash commands."
+    >
+    <meta name="theme-color" content="#11100d">
+    <title>Command reference | Froe</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body class="reference-page">
+    <a class="skip-link" href="#main">Skip to main content</a>
+
+    <header class="site-header">
+      <div class="shell header-inner">
+        <a class="brand" href="./index.html" aria-label="Froe home">
+          <svg class="brand-mark" viewBox="0 0 44 44" aria-hidden="true">
+            <path d="M4 8h24l12 14-12 14H4l12-14L4 8Z"></path>
+            <path d="M4 8 28 36"></path>
+          </svg>
+          <span>froe</span>
+        </a>
+
+        <nav aria-label="Primary">
+          <ul>
+            <li><a href="./index.html">Overview</a></li>
+            <li><a href="./commands.html" aria-current="page">Commands</a></li>
+            <li><a href="https://github.com/xfq/froe">GitHub</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <section class="reference-hero" id="top">
+        <div class="shell reference-hero-grid">
+          <div class="reference-hero-copy">
+            <h1>Command reference</h1>
+            <p>
+            </p>
+            <div class="usage-terminal" aria-label="Froe command syntax">
+              <span>Command syntax</span>
+              <code>froe [options] [task...]</code>
+            </div>
+          </div>
+
+          <nav class="reference-index" aria-label="On this page">
+            <p>On this page</p>
+            <ol>
+              <li><a href="#commands">Common commands</a></li>
+              <li><a href="#options">CLI options</a></li>
+              <li><a href="#slash-commands">Slash commands</a></li>
+            </ol>
+          </nav>
+        </div>
+      </section>
+
+      <div class="shell reference-layout">
+        <aside class="reference-rail" aria-label="Reference sections">
+          <a href="#commands">01 <span>Commands</span></a>
+          <a href="#options">02 <span>Options</span></a>
+          <a href="#slash-commands">03 <span>Slash commands</span></a>
+        </aside>
+
+        <div class="reference-content">
+          <section class="reference-section" id="commands">
+            <div class="reference-heading">
+              <h2>Start a Run with a task.</h2>
+              <p>
+                A task supplied on the command line starts one bounded Run in the current Workspace unless you set another path.
+              </p>
+            </div>
+
+            <ol class="command-list">
+              <li>
+                <code>froe "Fix the failing parser tests"</code>
+                <div>
+                  <h3>Run one coding task</h3>
+                  <p>Use a quoted task to give Froe one outcome to investigate, change, and verify.</p>
+                </div>
+              </li>
+              <li>
+                <code>froe</code>
+                <div>
+                  <h3>Continue in an interactive terminal</h3>
+                  <p>Send follow-up tasks in the same in-process conversation. Each non-empty message begins its own bounded run.</p>
+                </div>
+              </li>
+              <li>
+                <code>froe --help</code>
+                <div>
+                  <h3>Print the reference</h3>
+                  <p>Show the option list and the command syntax supported by the package.</p>
+                </div>
+              </li>
+              <li>
+                <code>froe --version</code>
+                <div>
+                  <h3>Check the installed version</h3>
+                  <p>Print the package version.</p>
+                </div>
+              </li>
+            </ol>
+          </section>
+
+          <section class="reference-section" id="options">
+            <div class="reference-heading">
+              <h2>Set the Run boundary and behavior.</h2>
+              <p>
+                Options belong before the coding task. Repeat an option only where the reference marks it repeatable.
+              </p>
+            </div>
+
+            <dl class="option-list">
+              <div>
+                <dt><code>-w, --workspace &lt;path&gt;</code></dt>
+                <dd>Use this Workspace instead of the current directory.</dd>
+              </div>
+              <div>
+                <dt><code>--add-dir &lt;path&gt;</code><span>repeatable</span></dt>
+                <dd>Grant read and write access to an additional directory outside the Workspace.</dd>
+              </div>
+              <div>
+                <dt><code>--base-url &lt;url&gt;</code></dt>
+                <dd>Set an OpenAI-compatible API endpoint for this Run.</dd>
+              </div>
+              <div>
+                <dt><code>-m, --model &lt;id&gt;</code></dt>
+                <dd>Select an OpenAI-compatible model.</dd>
+              </div>
+              <div>
+                <dt><code>--reasoning &lt;level&gt;</code></dt>
+                <dd>Choose <code>none</code>, <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, or <code>max</code>.</dd>
+              </div>
+              <div>
+                <dt><code>--image &lt;path&gt;</code><span>repeatable</span></dt>
+                <dd>Attach a PNG, JPEG, WEBP, or GIF to the first prompt.</dd>
+              </div>
+              <div>
+                <dt><code>-c, --config &lt;path&gt;</code></dt>
+                <dd>Load an additional user-controlled JSON configuration file.</dd>
+              </div>
+              <div>
+                <dt><code>--max-turns &lt;n&gt;</code></dt>
+                <dd>Set a positive maximum number of model turns for each message.</dd>
+              </div>
+              <div>
+                <dt><code>-y, --yes</code></dt>
+                <dd>Approve ordinary policy prompts, never sandbox exceptions.</dd>
+              </div>
+              <div>
+                <dt><code>-v, --verbose</code></dt>
+                <dd>Show full non-sensitive Action output.</dd>
+              </div>
+              <div>
+                <dt><code>--no-log</code></dt>
+                <dd>Do not write a local Run record.</dd>
+              </div>
+              <div>
+                <dt><code>--version</code></dt>
+                <dd>Print the installed package version.</dd>
+              </div>
+              <div>
+                <dt><code>-h, --help</code></dt>
+                <dd>Show command syntax and all CLI options.</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section class="reference-section" id="slash-commands">
+            <div class="reference-heading">
+              <h2>Use slash commands in the interactive prompt.</h2>
+              <p>
+                Start with <code>froe</code>, then press <kbd>Tab</kbd> after <code>/</code> to complete either available slash command.
+              </p>
+            </div>
+
+            <dl class="slash-command-list">
+              <div>
+                <dt><code>/init</code></dt>
+                <dd>
+                  <p>Create a starter <code>AGENTS.md</code> from the observed Workspace structure and tooling.</p>
+                  <p>If a root <code>AGENTS.md</code> already exists, Froe preserves it and reports that check as validation.</p>
+                </dd>
+              </div>
+              <div>
+                <dt><code>/exit</code></dt>
+                <dd>
+                  <p>Leave the interactive conversation without starting another Run.</p>
+                </dd>
+              </div>
+            </dl>
+
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <div class="shell footer-inner">
+        <div class="footer-brand">
+          <svg class="brand-mark" viewBox="0 0 44 44" aria-hidden="true">
+            <path d="M4 8h24l12 14-12 14H4l12-14L4 8Z"></path>
+            <path d="M4 8 28 36"></path>
+          </svg>
+        </div>
+        <div class="footer-links">
+          <a href="./index.html">Overview</a>
+          <a href="https://github.com/xfq/froe">GitHub</a>
+          <a href="https://github.com/xfq/froe/blob/main/README.md">Documentation</a>
+          <a href="https://github.com/xfq/froe/blob/main/LICENSE">Apache-2.0</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
