@@ -6,6 +6,7 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stderr as output, stdout } from "node:process";
 import type { ReadStream, WriteStream } from "node:tty";
 import { ActionRuntime, type ApprovalGate, type ApprovalRequest } from "./action-runtime.js";
+import { formatActionDetails, formatApprovalPrompt, redactSensitiveText } from "./action-summary.js";
 import { createCommandSandbox } from "./command-sandbox.js";
 import { loadConfig } from "./config.js";
 import { runConversation } from "./conversation.js";
@@ -251,7 +252,8 @@ class TerminalApproval implements ApprovalGate {
     const readline = createInterface({ input, output });
     try {
       const choices = request.scope === "sandbox_exception" || request.destructive ? "[y]es/[n]o" : "[y]es/[n]o/[a]ll this run";
-      const answer = (await readline.question(`Approve ${request.action.name}? ${request.reason} ${choices}: `)).trim().toLowerCase();
+      const prompt = formatApprovalPrompt(request.action, request.reason, choices);
+      const answer = (await readline.question(prompt)).trim().toLowerCase();
       if (answer === "a" && request.scope === "policy" && !request.destructive) {
         this.#alwaysApproved.add(category);
         return true;
@@ -276,10 +278,12 @@ function createRenderer(verbose: boolean, recordPath: string | undefined, conver
         if (event.text.trim()) output.write(`froe: ${event.text.trim()}\n`);
         break;
       case "action_requested":
-        output.write(`→ ${event.action.name}${describeAction(event.action)}\n`);
+        output.write(`→ ${event.action.name}\n`);
+        writeActionDetails(event.action);
         break;
       case "approval_requested":
-        output.write(`! approval needed: ${event.reason}\n`);
+        output.write(`! approval needed: ${redactSensitiveText(event.reason)}\n`);
+        writeActionDetails(event.action);
         break;
       case "action_result":
         output.write(`${event.result.ok ? "✓" : "✗"} ${event.result.name}${resultSuffix(event.result)}\n`);
@@ -302,11 +306,8 @@ function printConversationBanner(model: string, workspace: string, recordPath: s
   output.write("Send a follow-up after each run, or type /exit to leave.\n");
 }
 
-function describeAction(action: { name: string; arguments: unknown }): string {
-  if (!isRecord(action.arguments)) return "";
-  if (typeof action.arguments.path === "string") return ` ${action.arguments.path}`;
-  if (typeof action.arguments.executable === "string") return ` ${action.arguments.executable}`;
-  return "";
+function writeActionDetails(action: { name: string; arguments: unknown }): void {
+  for (const detail of formatActionDetails(action)) output.write(`  ${detail}\n`);
 }
 
 function resultSuffix(result: { name: string; ok: boolean; output: unknown }): string {

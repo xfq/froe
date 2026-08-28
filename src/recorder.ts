@@ -2,6 +2,7 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { formatActionDetails, redactSensitiveText } from "./action-summary.js";
 import type { LogMode, RunEvent } from "./types.js";
 
 export class RunRecorder {
@@ -39,26 +40,16 @@ function metadataEvent(event: RunEvent): object {
     case "model_text":
       return { type: event.type, characters: event.text.length };
     case "action_requested":
-      return { type: event.type, callId: event.action.callId, name: event.action.name, arguments: actionMetadata(event.action.name, event.action.arguments) };
+      return { type: event.type, callId: event.action.callId, name: event.action.name, summary: formatActionDetails(event.action) };
     case "action_result":
       return { type: event.type, callId: event.result.callId, name: event.result.name, ok: event.result.ok, result: resultMetadata(event.result.name, event.result.output) };
     case "approval_requested":
-      return { type: event.type, name: event.action.name, reason: event.reason };
+      return { type: event.type, name: event.action.name, summary: formatActionDetails(event.action), reason: redactSensitiveText(event.reason) };
     case "usage":
       return event;
     case "run_finished":
       return event;
   }
-}
-
-function actionMetadata(name: string, value: unknown): object {
-  if (!isRecord(value)) return {};
-  if (name === "apply_patch" && Array.isArray(value.changes)) {
-    return { changes: value.changes.filter(isRecord).map((change) => ({ path: change.path, operation: change.oldText === null ? "create" : change.newText === null ? "delete" : "replace" })) };
-  }
-  if (name === "read_file" || name === "list_files" || name === "search") return { path: value.path };
-  if (name === "run_command") return { executable: value.executable, args: value.args, cwd: value.cwd };
-  return {};
 }
 
 function resultMetadata(name: string, value: unknown): object {
