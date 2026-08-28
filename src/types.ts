@@ -19,6 +19,7 @@ export interface FroeConfig {
   baseURL?: string;
   model: string;
   reasoning: ReasoningEffort;
+  compactThresholdTokens: number | null;
   maxTurns: number;
   logging: LogMode;
   limits: Limits;
@@ -73,6 +74,7 @@ export interface ActionResult {
 export type ModelEvent =
   | { type: "text"; text: string }
   | { type: "action"; action: ActionRequest }
+  | { type: "context_compacted"; previousItems: number; retainedItems: number; thresholdTokens: number | null }
   | { type: "usage"; inputTokens: number; outputTokens: number }
   | { type: "completed" };
 
@@ -110,6 +112,7 @@ export type RunEvent =
   | { type: "action_requested"; action: ActionRequest }
   | { type: "action_result"; result: ActionResult }
   | { type: "approval_requested"; action: ActionRequest; reason: string }
+  | { type: "context_compacted"; previousItems: number; retainedItems: number; thresholdTokens: number | null }
   | { type: "usage"; inputTokens: number; outputTokens: number }
   | { type: "run_finished"; outcome: RunOutcome };
 

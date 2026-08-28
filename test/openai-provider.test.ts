@@ -71,6 +71,130 @@ test("the OpenAI adapter sends stateless function-call turns to a local server",
   }
 });
 
+test("the OpenAI adapter bounds continuation history after server-side compaction", async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>);
+    const payload = requests.length === 1
+      ? responseWithFunctionCall("finish", "first-finish", "{}")
+      : requests.length === 2
+        ? responseWithCompactionAndFunctionCall("finish", "second-finish", "{}")
+        : responseWithMessage("done");
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(payload));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Expected a TCP server address");
+    const provider = new OpenAIProvider(defaultConfig, { apiKey: "test-key", baseURL: `http://127.0.0.1:${address.port}/v1` });
+    const tools = [{ name: "finish" as const, description: "Finish", parameters: { type: "object" } }];
+
+    await collect(provider.turn({ system: "test system", user: "first task", tools }));
+    provider.recordActionResults([{ callId: "first-finish", name: "finish", ok: true, output: { outcome: "blocked" } }]);
+    await collect(provider.turn({ system: "test system", user: "second task", tools }));
+    provider.recordActionResults([{ callId: "second-finish", name: "finish", ok: true, output: { outcome: "blocked" } }]);
+    await collect(provider.turn({ system: "test system", user: "third task", tools }));
+
+    assert.deepEqual(requests[0]?.context_management, [{ type: "compaction", compact_threshold: 200_000 }]);
+    assert.deepEqual(requests[2]?.input, [
+      { type: "compaction", id: "cmp_1", encrypted_content: "opaque-state" },
+      { type: "function_call", id: "fc_2", call_id: "second-finish", name: "finish", arguments: "{}", status: "completed" },
+      { type: "function_call_output", call_id: "second-finish", output: JSON.stringify({ ok: true, output: { outcome: "blocked" } }) },
+      { role: "user", content: "third task" },
+    ]);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("the OpenAI adapter reports server-side compaction without exposing opaque state", async () => {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(responseWithCompactionAndFunctionCall("finish", "finish", "{}")));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Expected a TCP server address");
+    const provider = new OpenAIProvider(defaultConfig, { apiKey: "test-key", baseURL: `http://127.0.0.1:${address.port}/v1` });
+
+    const events = await collect(provider.turn({
+      system: "test system",
+      user: "inspect",
+      tools: [{ name: "finish", description: "Finish", parameters: { type: "object" } }],
+    }));
+    const compaction = events.find((event) => event.type === "context_compacted");
+
+    assert.deepEqual(compaction, {
+      type: "context_compacted",
+      previousItems: 1,
+      retainedItems: 2,
+      thresholdTokens: 200_000,
+    });
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("the OpenAI adapter uses the configured compaction threshold", async () => {
+  let received: Record<string, unknown> | undefined;
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    received = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(responseWithMessage("done")));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Expected a TCP server address");
+    const config = { ...defaultConfig, compactThresholdTokens: 40_000 };
+    const provider = new OpenAIProvider(config, { apiKey: "test-key", baseURL: `http://127.0.0.1:${address.port}/v1` });
+
+    await collect(provider.turn({ system: "test system", user: "inspect", tools: [] }));
+
+    assert.deepEqual(received?.context_management, [{ type: "compaction", compact_threshold: 40_000 }]);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("the OpenAI adapter can disable server-side compaction", async () => {
+  let received: Record<string, unknown> | undefined;
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    received = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(responseWithMessage("done")));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Expected a TCP server address");
+    const config = { ...defaultConfig, compactThresholdTokens: null };
+    const provider = new OpenAIProvider(config, { apiKey: "test-key", baseURL: `http://127.0.0.1:${address.port}/v1` });
+
+    await collect(provider.turn({ system: "test system", user: "inspect", tools: [] }));
+
+    assert.equal(received?.context_management, undefined);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
 test("the OpenAI adapter reads OPENAI_BASE_URL", async () => {
   const server = createServer((request, response) => {
     assert.equal(request.url, "/v1/responses");
@@ -151,6 +275,20 @@ function responseWithFunctionCall(name: string, callId: string, arguments_: stri
     status: "completed",
     output: [{ type: "function_call", id: "fc_1", call_id: callId, name, arguments: arguments_, status: "completed" }],
     usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+  };
+}
+
+function responseWithCompactionAndFunctionCall(name: string, callId: string, arguments_: string): object {
+  return {
+    id: "resp_compacted",
+    object: "response",
+    created_at: 0,
+    status: "completed",
+    output: [
+      { type: "compaction", id: "cmp_1", encrypted_content: "opaque-state" },
+      { type: "function_call", id: "fc_2", call_id: callId, name, arguments: arguments_, status: "completed" },
+    ],
+    usage: { input_tokens: 200_001, output_tokens: 2, total_tokens: 200_003 },
   };
 }
 

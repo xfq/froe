@@ -45,6 +45,8 @@ function metadataEvent(event: RunEvent): object {
       return { type: event.type, callId: event.result.callId, name: event.result.name, ok: event.result.ok, result: resultMetadata(event.result.name, event.result.output) };
     case "approval_requested":
       return { type: event.type, name: event.action.name, summary: formatActionDetails(event.action), reason: redactSensitiveText(event.reason) };
+    case "context_compacted":
+      return event;
     case "usage":
       return event;
     case "run_finished":

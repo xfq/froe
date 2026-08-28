@@ -223,6 +223,36 @@ test("workspace configuration cannot grant command environment access", async ()
   }
 });
 
+test("user configuration can disable context compaction", async () => {
+  const root = await workspace();
+  const configRoot = await workspace();
+  await mkdir(join(configRoot, "froe"));
+  await writeFile(join(configRoot, "froe", "config.json"), JSON.stringify({ compactThresholdTokens: null }));
+  const previous = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = configRoot;
+  try {
+    const config = await loadConfig({ workspace: root });
+    assert.equal(config.compactThresholdTokens, null);
+  } finally {
+    if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previous;
+  }
+});
+
+test("workspace configuration cannot control context compaction", async () => {
+  const root = await workspace();
+  await mkdir(join(root, ".froe"));
+  await writeFile(join(root, ".froe", "config.json"), JSON.stringify({ compactThresholdTokens: null }));
+  const previous = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = await workspace();
+  try {
+    await assert.rejects(() => loadConfig({ workspace: root }), /compactThresholdTokens is allowed only in user configuration/);
+  } finally {
+    if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previous;
+  }
+});
+
 test("workspace configuration cannot select an API endpoint", async () => {
   const root = await workspace();
   await mkdir(join(root, ".froe"));

@@ -16,12 +16,14 @@ The current implementation has a small boundary:
 - one production provider, the OpenAI Responses API, behind a provider-neutral interface;
 - local actions scoped to one Workspace and explicitly declared additional directories;
 - automatic macOS Seatbelt containment for spawned commands, with interactive approval for narrow exceptions;
-- in-memory model continuation state, with an optional append-only invocation record outside the workspace;
+- in-memory model continuation state bounded by provider-generated compaction checkpoints, with an optional append-only invocation record outside the workspace;
 - no resume protocol or long-lived daemon.
 
 ## System overview
 
 The CLI is the composition root. It reads user-selected PNG, JPEG, WEBP, or non-animated GIF attachments from repeatable `--image` options and accepts repeatable `--add-dir` paths that extend the run's explicit filesystem authority alongside its primary Workspace. It verifies the current Responses API request limits before a run starts, and passes attachments only to the first prompt (or first conversation message). The conversation module sequences user messages into bounded runs while preserving one model provider and action runtime. Its terminal adapter owns line editing and Tab completion for the supported slash commands: `/init`, which remains a normal run task, and `/exit`, which closes the conversation without a run. The three deepest modules remain the run loop, which owns model/action orchestration and completion semantics; the action runtime, which owns authorized-directory effects and approval policy; and the command sandbox, which owns child-process containment and lifecycle. Provider-specific translation, persistence, configuration, credentials, and project-instruction discovery sit behind smaller seams.
+
+The OpenAI adapter requests server-side context compaction at a user-selected threshold. When the provider returns a compaction item, the adapter replaces all earlier continuation input with the checkpoint and subsequent output items, then emits a provider-neutral audit event with counts and the configured threshold.
 
 ## Action runtime
 
@@ -54,6 +56,10 @@ Configuration merges from lowest to highest precedence:
 4. an explicit user-controlled file passed with `--config`;
 5. CLI overrides.
 
+### Model continuation and compaction
+
+The OpenAI adapter sends `store: false` and requests server-side compaction at 200,000 tokens by default. When a response contains a compaction checkpoint, the adapter discards all earlier in-memory continuation items and retains the checkpoint plus subsequent output. The emitted `context_compacted` event contains only the previous and retained item counts and the configured threshold. Neither the opaque checkpoint nor source-bearing model history is written to terminal output or the run record.
+
 ### Prompt attachments
 
 The OpenAI provider encodes CLI image attachments as base64 `input_image` content alongside the prompt text. Attachment bytes and paths remain only in the in-memory model context. They are absent from run events and their local records.
@@ -67,7 +73,8 @@ The automated suite tests behavior at the deepest public seams:
 - [`test/cli.test.ts`](./test/cli.test.ts) verifies slash-command completion, follow-up terminal input, and releasing the input stream before a run can request approval;
 - [`test/action-runtime.test.ts`](./test/action-runtime.test.ts) exercises patch preflight, workspace confinement, symlink rejection, search results, command timeouts, environment filtering, and workspace configuration restrictions;
 - [`test/command-sandbox.test.ts`](./test/command-sandbox.test.ts) exercises the real macOS Seatbelt adapter;
-- [`test/openai-provider.test.ts`](./test/openai-provider.test.ts) uses a local fake HTTP server to verify Responses API translation and client-side continuation without a real API call;
+- [`test/openai-provider.test.ts`](./test/openai-provider.test.ts) uses a local fake HTTP server to verify Responses API translation, configurable server-side compaction, and bounded client-side continuation without a real API call;
+- [`test/recorder.test.ts`](./test/recorder.test.ts) verifies append-only recording of provider-neutral context-compaction metadata;
 - [`test/credentials.test.ts`](./test/credentials.test.ts) verifies credential precedence, prompting, migration, validation, and file permissions.
 
 The normal local validation sequence is:

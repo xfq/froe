@@ -10,6 +10,11 @@
     "reasoning": {
       "enum": ["none", "low", "medium", "high", "xhigh", "max"]
     },
+    "compactThresholdTokens": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "Token threshold for OpenAI server-side context compaction, or null to disable it."
+    },
     "maxTurns": { "type": "integer", "minimum": 1 },
     "logging": { "enum": ["metadata", "full"] },
     "limits": {

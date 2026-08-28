@@ -120,6 +120,46 @@ test("a run sends prompt images only with its first model turn", async () => {
   assert.equal(outcome.status, "completed");
 });
 
+test("a run emits context compaction metadata from the model provider", async () => {
+  const root = await mkdtemp(join(tmpdir(), "froe-run-"));
+  const model = new ScriptedModel([[
+    { type: "context_compacted", previousItems: 120, retainedItems: 3, thresholdTokens: 200_000 },
+    {
+      type: "action",
+      action: {
+        callId: "finish",
+        name: "finish",
+        arguments: {
+          outcome: "completed",
+          summary: "Finished after compacting context.",
+          verification: [{ description: "Test fixture", result: "passed" }],
+        },
+      },
+    },
+  ]]);
+  const events: RunEvent[] = [];
+
+  await runTask({
+    task: "Complete a long task",
+    model,
+    runtime: await runtime(root),
+    instructions: [],
+    modelName: "scripted",
+    maxTurns: 1,
+    emit: (event) => {
+      events.push(event);
+    },
+  });
+  const compaction = events.find((event) => event.type === "context_compacted");
+
+  assert.deepEqual(compaction, {
+    type: "context_compacted",
+    previousItems: 120,
+    retainedItems: 3,
+    thresholdTokens: 200_000,
+  });
+});
+
 test("a run tells the model about additional authorized directories", async () => {
   const root = await mkdtemp(join(tmpdir(), "froe-run-"));
   const additionalDirectory = await realpath(await mkdtemp(join(tmpdir(), "froe-run-additional-")));

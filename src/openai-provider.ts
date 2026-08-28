@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { toResponseInputItems } from "openai/lib/responses/ResponseInputItems";
 import type { ResponseInputItem, ResponseInputMessageContentList, ResponseOutputItem } from "openai/resources/responses/responses";
 import type { ActionRequest, ActionResult, FroeConfig, ModelEvent, ModelProvider, ModelTurn, PromptImage } from "./types.js";
 
@@ -43,12 +44,29 @@ export class OpenAIProvider implements ModelProvider {
       reasoning: { effort: this.#config.reasoning },
       include: ["reasoning.encrypted_content"],
       store: false,
+      ...(this.#config.compactThresholdTokens === null
+        ? {}
+        : { context_management: [{ type: "compaction", compact_threshold: this.#config.compactThresholdTokens }] }),
       parallel_tool_calls: false,
     }, input.signal === undefined ? undefined : { signal: input.signal });
 
+    const previousItems = this.#history.length;
+    const latestCompaction = response.output.findLastIndex((item) => item.type === "compaction");
+    const continuation = toResponseInputItems(latestCompaction === -1
+      ? response.output
+      : response.output.slice(latestCompaction));
+    if (latestCompaction === -1) this.#history.push(...continuation);
+    else {
+      this.#history = continuation;
+      yield {
+        type: "context_compacted",
+        previousItems,
+        retainedItems: continuation.length,
+        thresholdTokens: this.#config.compactThresholdTokens,
+      };
+    }
+
     for (const item of response.output) {
-      const replayable = replayableItem(item);
-      if (replayable !== undefined) this.#history.push(replayable);
       yield* modelEventsFor(item);
     }
     if (response.usage !== undefined) {
@@ -78,11 +96,6 @@ function userMessage(text: string, images: PromptImage[]): ResponseInputItem {
 export interface OpenAIProviderOptions {
   apiKey?: string;
   baseURL?: string;
-}
-
-function replayableItem(item: ResponseOutputItem): ResponseInputItem | undefined {
-  if (item.type === "message" || item.type === "function_call" || item.type === "reasoning") return item;
-  return undefined;
 }
 
 function* modelEventsFor(item: ResponseOutputItem): Generator<ModelEvent> {

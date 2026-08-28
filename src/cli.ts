@@ -289,6 +289,9 @@ function createRenderer(verbose: boolean, recordPath: string | undefined, conver
         output.write(`${event.result.ok ? "✓" : "✗"} ${event.result.name}${resultSuffix(event.result)}\n`);
         if (verbose) output.write(`${JSON.stringify(event.result.output, null, 2)}\n`);
         break;
+      case "context_compacted":
+        output.write(`↻ context compacted (${event.previousItems} → ${event.retainedItems} items)\n`);
+        break;
       case "usage":
         if (verbose) output.write(`usage: ${event.inputTokens} input, ${event.outputTokens} output tokens\n`);
         break;

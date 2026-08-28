@@ -39,6 +39,8 @@ export async function runTask(request: RunRequest): Promise<RunOutcome> {
         } else if (event.type === "action") {
           actions.push(event.action);
           await emit({ type: "action_requested", action: event.action });
+        } else if (event.type === "context_compacted") {
+          await emit(event);
         } else if (event.type === "usage") {
           await emit({ type: "usage", inputTokens: event.inputTokens, outputTokens: event.outputTokens });
         }

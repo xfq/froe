@@ -99,6 +99,7 @@ Example user configuration:
   "baseURL": "https://api.example.com/v1",
   "model": "gpt-5.6-terra",
   "reasoning": "medium",
+  "compactThresholdTokens": 200000,
   "maxTurns": 40,
   "logging": "metadata",
   "limits": {
@@ -115,7 +116,7 @@ OPENAI_API_KEY="..." OPENAI_BASE_URL="https://api.example.com/v1" \
   froe --model "provider-model-id" "Inspect this repository"
 ```
 
-The provider must support the OpenAI Responses API, including function calling. Workspace configuration may set only `model` and `limits`; it cannot select an API endpoint, pass environment variables, or weaken approvals. Setting `OPENAI_API_KEY` bypasses the saved connection; pair it with `OPENAI_BASE_URL` for a compatible endpoint, or froe uses the default OpenAI base URL. `--base-url` and user configuration override either Base URL. Credentials are never read from workspace configuration or `.env` files.
+The provider must support the OpenAI Responses API, including function calling. OpenAI server-side context compaction starts at 200,000 tokens by default. Set `compactThresholdTokens` to a positive integer in user configuration to change the threshold, or to `null` for a compatible endpoint that does not support `context_management`. Workspace configuration may set only `model` and `limits`; it cannot select an API endpoint, control compaction, pass environment variables, or weaken approvals. Setting `OPENAI_API_KEY` bypasses the saved connection; pair it with `OPENAI_BASE_URL` for a compatible endpoint, or froe uses the default OpenAI base URL. `--base-url` and user configuration override either Base URL. Credentials are never read from workspace configuration or `.env` files. See the [OpenAI compaction guide](https://developers.openai.com/api/docs/guides/compaction).
 
 ## Safety model
 
@@ -127,7 +128,7 @@ froe only edits UTF-8 text files inside the Workspace or directories explicitly 
 
 Each CLI invocation writes a JSONL record to `$XDG_STATE_HOME/froe/runs` or `~/.local/state/froe/runs` unless `--no-log` is used. An interactive conversation records each of its bounded runs in the same file. Metadata records let a person reconstruct the run's action sequence, safe action summaries, result status, approval reasons, and final outcome with verification. They omit source content, patch bodies, tool output, and model text by default; set `logging` to `full` only for local debugging.
 
-The OpenAI adapter sends `store: false` and retains the current CLI conversation's continuation state in memory. Conversations cannot be resumed after the process exits. See [OpenAI's data controls documentation](https://developers.openai.com/api/docs/guides/your-data#default-usage-policies-by-endpoint) for the distinction between response storage and API abuse-monitoring retention.
+The OpenAI adapter sends `store: false` and retains the current CLI conversation's continuation state in memory. When server-side compaction returns a checkpoint, froe discards the older in-memory continuation and records a safe `context_compacted` event containing only item counts and the configured threshold. The opaque checkpoint is never copied into the run record. Conversations cannot be resumed after the process exits. See [OpenAI's data controls documentation](https://developers.openai.com/api/docs/guides/your-data#default-usage-policies-by-endpoint) for the distinction between response storage and API abuse-monitoring retention.
 
 ## Development
 

@@ -10,6 +10,7 @@ export const defaultConfig: FroeConfig = {
   provider: "openai",
   model: "gpt-5.6-terra",
   reasoning: "medium",
+  compactThresholdTokens: 200_000,
   maxTurns: 40,
   logging: "metadata",
   limits: {
@@ -67,6 +68,9 @@ export function mergeConfig(
     if (layer.model !== undefined) merged.model = layer.model;
     if ("baseURL" in layer && layer.baseURL !== undefined) merged.baseURL = layer.baseURL;
     if (layer.reasoning !== undefined) merged.reasoning = layer.reasoning;
+    if ("compactThresholdTokens" in layer && layer.compactThresholdTokens !== undefined) {
+      merged.compactThresholdTokens = layer.compactThresholdTokens;
+    }
     if (layer.maxTurns !== undefined) merged.maxTurns = layer.maxTurns;
     if ("logging" in layer && layer.logging !== undefined) merged.logging = layer.logging;
     if ("provider" in layer && layer.provider !== undefined) merged.provider = layer.provider;
@@ -100,9 +104,9 @@ async function readConfig(path: string, scope: "user" | "workspace"): Promise<Co
 
 function parseLayer(value: unknown, path: string, scope: "user" | "workspace"): ConfigLayer {
   const object = objectValue(value, path);
-  assertOnlyKeys(object, ["provider", "baseURL", "model", "reasoning", "maxTurns", "logging", "limits", "commandEnv"], path);
+  assertOnlyKeys(object, ["provider", "baseURL", "model", "reasoning", "compactThresholdTokens", "maxTurns", "logging", "limits", "commandEnv"], path);
   if (scope === "workspace") {
-    const restricted = ["provider", "baseURL", "reasoning", "maxTurns", "logging", "commandEnv"].find((key) => object[key] !== undefined);
+    const restricted = ["provider", "baseURL", "reasoning", "compactThresholdTokens", "maxTurns", "logging", "commandEnv"].find((key) => object[key] !== undefined);
     if (restricted !== undefined) throw new Error(`${path}.${restricted} is allowed only in user configuration`);
   }
   const layer: ConfigLayer = {};
@@ -117,6 +121,11 @@ function parseLayer(value: unknown, path: string, scope: "user" | "workspace"): 
     const reasoning = stringValue(object.reasoning, `${path}.reasoning`);
     if (!reasoningValues.has(reasoning as ReasoningEffort)) throw new Error(`${path}.reasoning is not supported`);
     layer.reasoning = reasoning as ReasoningEffort;
+  }
+  if (object.compactThresholdTokens !== undefined) {
+    layer.compactThresholdTokens = object.compactThresholdTokens === null
+      ? null
+      : positiveInteger(object.compactThresholdTokens, `${path}.compactThresholdTokens`);
   }
   if (object.maxTurns !== undefined) layer.maxTurns = positiveInteger(object.maxTurns, `${path}.maxTurns`);
   if (object.logging !== undefined) {
@@ -144,6 +153,9 @@ function validateResolvedConfig(config: FroeConfig): void {
   if (config.baseURL !== undefined) urlValue(config.baseURL, "baseURL");
   if (!config.model.trim()) throw new Error("model cannot be empty");
   if (!reasoningValues.has(config.reasoning)) throw new Error("reasoning is not supported");
+  if (config.compactThresholdTokens !== null) {
+    positiveInteger(config.compactThresholdTokens, "compactThresholdTokens");
+  }
   if (!logValues.has(config.logging)) throw new Error("logging is not supported");
   for (const [key, value] of Object.entries(config.limits)) {
     if (!Number.isSafeInteger(value) || value < 1) throw new Error(`limits.${key} must be a positive integer`);
