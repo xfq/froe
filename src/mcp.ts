@@ -28,6 +28,7 @@ interface PendingRequest {
   resolve(value: unknown): void;
   reject(error: Error): void;
   timeout: NodeJS.Timeout;
+  removeAbortListener?: () => void;
 }
 
 export class McpManager {
@@ -93,7 +94,7 @@ export class McpManager {
       return failure(request, "invalid_mcp_arguments", `${request.name} requires an object of arguments.`);
     }
     try {
-      const output = await target.client.callTool(target.toolName, request.arguments as { [key: string]: JsonValue });
+      const output = await target.client.callTool(target.toolName, request.arguments as { [key: string]: JsonValue }, signal);
       return { callId: request.callId, name: request.name, ok: true, output };
     } catch (error) {
       return failure(request, "mcp_tool_failed", errorMessage(error));
@@ -178,8 +179,8 @@ class McpClient {
     return tools;
   }
 
-  async callTool(name: string, arguments_: { [key: string]: JsonValue }): Promise<JsonValue> {
-    const response = await this.request("tools/call", { name, arguments: arguments_ });
+  async callTool(name: string, arguments_: { [key: string]: JsonValue }, signal?: AbortSignal): Promise<JsonValue> {
+    const response = await this.request("tools/call", { name, arguments: arguments_ }, signal);
     const result = jsonValue(response);
     if (result === undefined) throw new Error(`MCP server ${this.#name} returned a non-JSON tool result.`);
     if (record(result)?.isError === true) {
@@ -201,21 +202,31 @@ class McpClient {
     this.#write({ jsonrpc: "2.0", method });
   }
 
-  async request(method: string, params: { [key: string]: JsonValue }): Promise<unknown> {
+  async request(method: string, params: { [key: string]: JsonValue }, signal?: AbortSignal): Promise<unknown> {
     if (this.#closed) throw new Error(`MCP server ${this.#name} is not running.`);
     const id = ++this.#nextId;
     return new Promise<unknown>((resolve, reject) => {
       const timeout = setTimeout(() => {
-        this.#pending.delete(id);
-        reject(new Error(`MCP server ${this.#name} did not answer ${method} within ${requestTimeoutMs / 1_000} seconds.`));
+        this.#takePending(id)?.reject(new Error(`MCP server ${this.#name} did not answer ${method} within ${requestTimeoutMs / 1_000} seconds.`));
       }, requestTimeoutMs);
-      this.#pending.set(id, { resolve, reject, timeout });
+      const onAbort = (): void => {
+        this.#takePending(id)?.reject(new Error("Run cancelled"));
+      };
+      this.#pending.set(id, {
+        resolve,
+        reject,
+        timeout,
+        ...(signal === undefined ? {} : { removeAbortListener: () => signal.removeEventListener("abort", onAbort) }),
+      });
+      if (signal !== undefined) signal.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
       try {
         this.#write({ jsonrpc: "2.0", id, method, params });
       } catch (error) {
-        clearTimeout(timeout);
-        this.#pending.delete(id);
-        reject(error instanceof Error ? error : new Error(String(error)));
+        this.#takePending(id)?.reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
   }
@@ -248,10 +259,8 @@ class McpClient {
       return;
     }
     if (typeof message.id !== "number") return;
-    const pending = this.#pending.get(message.id);
+    const pending = this.#takePending(message.id);
     if (pending === undefined) return;
-    clearTimeout(pending.timeout);
-    this.#pending.delete(message.id);
     if (message.error !== undefined) {
       pending.reject(new Error(`MCP server ${this.#name} rejected the request: ${jsonErrorMessage(message.error)}`));
       return;
@@ -269,11 +278,18 @@ class McpClient {
   }
 
   #rejectPending(error: Error): void {
-    for (const pending of this.#pending.values()) {
-      clearTimeout(pending.timeout);
-      pending.reject(error);
+    for (const id of [...this.#pending.keys()]) {
+      this.#takePending(id)?.reject(error);
     }
-    this.#pending.clear();
+  }
+
+  #takePending(id: number): PendingRequest | undefined {
+    const pending = this.#pending.get(id);
+    if (pending === undefined) return undefined;
+    this.#pending.delete(id);
+    clearTimeout(pending.timeout);
+    pending.removeAbortListener?.();
+    return pending;
   }
 }
 

@@ -105,8 +105,57 @@ test("a stopped MCP server is no longer reported as active", async () => {
   }
 });
 
+test("a cancelled MCP tool call stops waiting and ignores its late result", async () => {
+  const root = await mkdtemp(join(tmpdir(), "froe-mcp-"));
+  const serverPath = join(root, "server.mjs");
+  await writeFile(serverPath, fixtureServer);
+  const mcp = await McpManager.connect({
+    docs: { command: process.execPath, args: [serverPath, "--delay-tool-call"] },
+  });
+  const controller = new AbortController();
+  const first = mcp.execute({
+    callId: "first",
+    name: "mcp__docs__lookup",
+    arguments: { topic: "first" },
+  }, controller.signal);
+  controller.abort();
+  let deadline: NodeJS.Timeout | undefined;
+
+  try {
+    const result = await Promise.race([
+      first,
+      new Promise<never>((_resolve, reject) => {
+        deadline = setTimeout(() => reject(new Error("MCP cancellation waited for the tool response.")), 200);
+      }),
+    ]);
+    assert.deepEqual(result, {
+      callId: "first",
+      name: "mcp__docs__lookup",
+      ok: false,
+      output: { code: "mcp_tool_failed", message: "Run cancelled" },
+    });
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 75));
+    const second = await mcp.execute({
+      callId: "second",
+      name: "mcp__docs__lookup",
+      arguments: { topic: "second" },
+    });
+    assert.deepEqual(second, {
+      callId: "second",
+      name: "mcp__docs__lookup",
+      ok: true,
+      output: { content: [{ type: "text", text: "Delayed MCP tool call 2." }] },
+    });
+  } finally {
+    if (deadline !== undefined) clearTimeout(deadline);
+    await mcp.close();
+  }
+});
+
 const fixtureServer = String.raw`
 let buffer = "";
+let toolCalls = 0;
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => {
   buffer += chunk;
@@ -122,7 +171,12 @@ process.stdin.on("data", (chunk) => {
       respond(request.id, { tools: [{ name: "lookup", description: "Look up developer documentation.", inputSchema: { type: "object", properties: { topic: { type: "string" } }, required: ["topic"] } }] });
       if (process.argv.includes("--exit-after-list")) setTimeout(() => process.exit(0), 10);
     } else if (request.method === "tools/call") {
-      respond(request.id, { content: [{ type: "text", text: "MCP connects models to tools and context." }] });
+      toolCalls += 1;
+      const result = process.argv.includes("--delay-tool-call")
+        ? { content: [{ type: "text", text: "Delayed MCP tool call " + toolCalls + "." }] }
+        : { content: [{ type: "text", text: "MCP connects models to tools and context." }] };
+      if (process.argv.includes("--delay-tool-call")) setTimeout(() => respond(request.id, result), 50);
+      else respond(request.id, result);
     }
   }
 });
