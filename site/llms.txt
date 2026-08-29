@@ -1,0 +1,14 @@
+# froe
+
+> Froe is an inspectable coding agent for bounded work in a codebase. It makes precise changes in one Workspace, asks for approvals where required, and records enough metadata to reconstruct each run.
+
+Use the README for installation, everyday CLI use, configuration, MCP integration, safety behavior, and development.
+
+## Core documentation
+
+- [README](https://raw.githubusercontent.com/xfq/froe/main/README.md): Installation, quick start, CLI use, configuration, MCP servers, safety model, observability, and development.
+- [Configuration schema](https://raw.githubusercontent.com/xfq/froe/main/froe.config.schema.json): Machine-readable configuration keys and validation rules.
+
+## Optional
+
+- [Evaluation harness](https://raw.githubusercontent.com/xfq/froe/main/evals/README.md): How the repository's agent-neutral coding evaluations are constructed and run.
