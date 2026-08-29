@@ -14,33 +14,34 @@ The current implementation has a small boundary:
 
 - one task and one model provider per run, with one provider reused across the runs in an interactive conversation;
 - one production provider, the OpenAI Responses API, behind a provider-neutral interface;
-- local actions scoped to one Workspace and explicitly declared additional directories;
+- local actions scoped to one Workspace and explicitly declared additional directories, plus Tavily web search;
 - automatic macOS Seatbelt containment for spawned commands, with interactive approval for narrow exceptions;
 - in-memory model continuation state bounded by provider-generated compaction checkpoints, with an optional append-only invocation record outside the workspace;
 - no resume protocol or long-lived daemon.
 
 ## System overview
 
-The CLI is the composition root. Before creating credentials, run records, or an action runtime, it lets the updater check npm-managed global installations for a newer stable release. It reads user-selected PNG, JPEG, WEBP, or non-animated GIF attachments from repeatable `--image` options and accepts repeatable `--add-dir` paths that extend the run's explicit filesystem authority alongside its primary Workspace. It verifies the current Responses API request limits before a run starts, and passes attachments only to the first prompt (or first conversation message). The conversation module sequences user messages into bounded runs while preserving one model provider and action runtime. Its terminal adapter owns line editing and Tab completion for the supported slash commands: `/init`, which remains a normal run task, and `/exit`, which closes the conversation without a run. The three deepest modules remain the run loop, which owns model/action orchestration and completion semantics; the action runtime, which owns authorized-directory effects and approval policy; and the command sandbox, which owns child-process containment and lifecycle. Provider-specific translation, persistence, configuration, credentials, automatic updates, and project-instruction discovery sit behind smaller seams.
+The CLI is the composition root. Before creating credentials, run records, or an action runtime, it lets the updater check npm-managed global installations for a newer stable release. It reads user-selected PNG, JPEG, WEBP, or non-animated GIF attachments from repeatable `--image` options and accepts repeatable `--add-dir` paths that extend the run's explicit filesystem authority alongside its primary Workspace. It verifies the current Responses API request limits before a run starts, and passes attachments only to the first prompt (or first conversation message). The conversation module sequences user messages into bounded runs while preserving one model provider and action runtime. Its terminal adapter owns line editing and Tab completion for the supported slash commands: `/init`, which remains a normal run task, and `/exit`, which closes the conversation without a run. The three deepest modules remain the run loop, which owns model/action orchestration and completion semantics; the action runtime, which owns authorized-directory effects and approval policy; and the command sandbox, which owns child-process containment and lifecycle. The Tavily adapter owns its HTTP boundary and response normalization. Provider-specific translation, persistence, configuration, credentials, automatic updates, and project-instruction discovery sit behind smaller seams.
 
 The OpenAI adapter requests server-side context compaction at a user-selected threshold. When the provider returns a compaction item, the adapter replaces all earlier continuation input with the checkpoint and subsequent output items, then emits a provider-neutral audit event with counts and the configured threshold.
 
 ## Action runtime
 
-The model sees six actions. Their JSON schemas and implementations live together in [`src/action-runtime.ts`](./src/action-runtime.ts).
+The model sees seven actions. Their JSON schemas and implementations live together in [`src/action-runtime.ts`](./src/action-runtime.ts).
 
 | Action | Behavior |
 | --- | --- |
 | `list_files` | Lists one directory level, sorted, while hiding symlinks and ignored directories. It accepts Workspace-relative paths or absolute paths beneath a declared additional directory. |
 | `read_file` | Reads bounded lines and bytes from one UTF-8 text file in an authorized directory. |
 | `search` | Performs literal, case-sensitive search with `rg`; falls back to a Node traversal if `rg` is unavailable or unusable. |
+| `web_search` | Sends a bounded query to Tavily's Search API and returns normalized title, URL, excerpt, and score fields. The adapter in [`src/tavily-web-search.ts`](./src/tavily-web-search.ts) receives a key resolved from Froe's private credential file or `TAVILY_API_KEY`. |
 | `apply_patch` | Creates, replaces, or deletes UTF-8 text files in authorized directories through exact-match changes. A batch validates before mutation and stages writes before replacement. |
 | `run_command` | Runs one executable with an argument array through `CommandSandbox`, with an authorized-directory working directory, bounded output, and a timeout. On macOS the child receives a temporary `HOME` and can read only the Workspace, declared additional directories, temporary directory, system runtime, and resolved supported toolchains. It never invokes a shell implicitly. |
 | `finish` | Parses the model's proposed outcome; the run loop performs the final semantic checks. |
 
 ### Approval boundary
 
-Read-only file actions and `finish` do not require approval. Deletion through `apply_patch` is always classified as destructive.
+Read-only file actions, `web_search`, and `finish` do not require approval. `web_search` sends its query to Tavily and may consume API credits. Its action summary and metadata record do not retain the query or search response. Deletion through `apply_patch` is always classified as destructive.
 
 Known destructive executables and Git subcommands that can discard changes require destructive approval before execution. Other commands run automatically inside the command sandbox. Deletion through `apply_patch` remains independently approval-gated.
 
@@ -57,6 +58,10 @@ Configuration merges from lowest to highest precedence:
 5. CLI overrides.
 
 Automatic updates are enabled by default and can be disabled only by user configuration or the invocation's `--no-update` flag. Workspace configuration cannot control installation behavior.
+
+### Tavily credential boundary
+
+Tavily is optional and is enabled after `froe --configure-tavily` saves its key in `$XDG_CONFIG_HOME/froe/credentials.json`, or `~/.config/froe/credentials.json`. The credential file is owner-only; a configured OpenAI connection and Tavily key are preserved together. `TAVILY_API_KEY` overrides the saved key for one process. The key is neither read from workspace configuration nor passed to spawned commands, even if `commandEnv` names it. Search requests use an Authorization header, avoid requesting generated answers, images, or raw page content, and cap a returned source excerpt at 4,000 characters.
 
 ### Automatic updates
 
@@ -76,8 +81,9 @@ The automated suite tests behavior at the deepest public seams:
 
 - [`test/run.test.ts`](./test/run.test.ts) drives complete runs with `ScriptedModel`, including patching, approval denial, `/init`, and completion evidence;
 - [`test/conversation.test.ts`](./test/conversation.test.ts) sends multiple user messages through sequential runs and verifies follow-up context;
-- [`test/cli.test.ts`](./test/cli.test.ts) verifies slash-command completion, follow-up terminal input, and releasing the input stream before a run can request approval;
-- [`test/action-runtime.test.ts`](./test/action-runtime.test.ts) exercises patch preflight, workspace confinement, symlink rejection, search results, command timeouts, environment filtering, and workspace configuration restrictions;
+- [`test/cli.test.ts`](./test/cli.test.ts) verifies slash-command completion, follow-up terminal input, release of the input stream before a run can request approval, and Tavily setup help;
+- [`test/action-runtime.test.ts`](./test/action-runtime.test.ts) exercises patch preflight, workspace confinement, symlink rejection, local search, Tavily requests, command timeouts, environment filtering, and workspace configuration restrictions;
+- [`test/tavily-web-search.test.ts`](./test/tavily-web-search.test.ts) verifies Tavily request construction, source normalization, missing credentials, and safe HTTP-failure handling without a live API call;
 - [`test/command-sandbox.test.ts`](./test/command-sandbox.test.ts) exercises the real macOS Seatbelt adapter;
 - [`test/openai-provider.test.ts`](./test/openai-provider.test.ts) uses a local fake HTTP server to verify Responses API translation, configurable server-side compaction, and bounded client-side continuation without a real API call;
 - [`test/recorder.test.ts`](./test/recorder.test.ts) verifies append-only recording of provider-neutral context-compaction metadata;

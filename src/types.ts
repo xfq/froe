@@ -55,6 +55,7 @@ export type ActionName =
   | "list_files"
   | "read_file"
   | "search"
+  | "web_search"
   | "apply_patch"
   | "run_command"
   | "finish";

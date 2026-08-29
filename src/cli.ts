@@ -11,7 +11,7 @@ import { formatActionDetails, formatApprovalPrompt, redactSensitiveText } from "
 import { createCommandSandbox } from "./command-sandbox.js";
 import { loadConfig } from "./config.js";
 import { runConversation } from "./conversation.js";
-import { DEFAULT_OPENAI_BASE_URL, FileCredentialStore, resolveOpenAICredentials } from "./credentials.js";
+import { DEFAULT_OPENAI_BASE_URL, FileCredentialStore, resolveOpenAICredentials, resolveTavilyApiKey, saveTavilyApiKey } from "./credentials.js";
 import { discoverProjectInstructions } from "./instructions.js";
 import { OpenAIProvider } from "./openai-provider.js";
 import { loadPromptImages } from "./prompt-images.js";
@@ -20,14 +20,29 @@ import { runTask } from "./run.js";
 import { terminalMessages } from "./terminal-conversation.js";
 import type { EventSink, ReasoningEffort, RunEvent, RunOptions } from "./types.js";
 import { maybeAutoUpdate } from "./updater.js";
+import { TavilyWebSearch } from "./tavily-web-search.js";
 
 const reasoningValues = new Set<ReasoningEffort>(["none", "low", "medium", "high", "xhigh", "max"]);
 const packageName = "@xfq/froe";
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageVersion = await readPackageVersion();
 
+interface ConfigureTavilyOptions {
+  configureTavily: true;
+}
+
+interface RunCliOptions extends RunOptions {
+  configureTavily: false;
+}
+
+type CliOptions = ConfigureTavilyOptions | RunCliOptions;
+
 async function main(): Promise<void> {
   const options = await parseOptions();
+  if (options.configureTavily) {
+    await configureTavily();
+    return;
+  }
   const update = await maybeAutoUpdate({
     enabled: options.config.autoUpdate,
     packageName,
@@ -43,6 +58,7 @@ async function main(): Promise<void> {
     output.write(`froe: automatic update ${update.phase} failed; continuing with ${packageVersion}.\n`);
   }
   const conversationMode = options.task === undefined;
+  const credentialStore = new FileCredentialStore();
   const credentials = await resolveOpenAICredentials({
     ...(process.env.OPENAI_API_KEY === undefined ? {} : { environmentApiKey: process.env.OPENAI_API_KEY }),
     ...(options.config.baseURL !== undefined
@@ -53,10 +69,14 @@ async function main(): Promise<void> {
     interactive: input.isTTY === true && output.isTTY === true,
     promptApiKey: () => promptForApiKey(input, output),
     promptBaseURL: (defaultValue) => promptForBaseURL(input, output, defaultValue),
-    store: new FileCredentialStore(),
+    store: credentialStore,
     onSaved: () => {
       output.write("OpenAI connection saved. Future runs will use it automatically.\n");
     },
+  });
+  const tavilyApiKey = await resolveTavilyApiKey({
+    ...(process.env.TAVILY_API_KEY === undefined ? {} : { environmentApiKey: process.env.TAVILY_API_KEY }),
+    store: credentialStore,
   });
   const recorder = await RunRecorder.create(options.config.logging, options.noLog);
   const render = createRenderer(options.verbose, recorder.path, conversationMode);
@@ -75,6 +95,7 @@ async function main(): Promise<void> {
       onApprovalRequested: async (request) => sink({ type: "approval_requested", action: request.action, reason: request.reason }),
     },
     options.additionalDirectories,
+    new TavilyWebSearch(tavilyApiKey === undefined ? {} : { apiKey: tavilyApiKey }),
   );
   const instructions = await discoverProjectInstructions(runtime.workspace);
   const provider = new OpenAIProvider(options.config, credentials);
@@ -121,7 +142,7 @@ async function main(): Promise<void> {
   }
 }
 
-async function parseOptions(): Promise<RunOptions> {
+async function parseOptions(): Promise<CliOptions> {
   const parsed = parseArgs({
     args: process.argv.slice(2),
     options: {
@@ -137,6 +158,7 @@ async function parseOptions(): Promise<RunOptions> {
       verbose: { type: "boolean", short: "v", default: false },
       "no-log": { type: "boolean", default: false },
       "no-update": { type: "boolean", default: false },
+      "configure-tavily": { type: "boolean", default: false },
       version: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -152,6 +174,10 @@ async function parseOptions(): Promise<RunOptions> {
     process.exit(0);
   }
   const taskFromArguments = parsed.positionals.join(" ").trim();
+  if (parsed.values["configure-tavily"]) {
+    if (taskFromArguments) throw new UsageError("--configure-tavily does not accept a task.");
+    return { configureTavily: true };
+  }
   let task = taskFromArguments || undefined;
   if (task === undefined && input.isTTY !== true) task = (await taskFromStdin()).trim() || undefined;
   if (input.isTTY !== true && task === undefined) {
@@ -183,6 +209,7 @@ async function parseOptions(): Promise<RunOptions> {
     yes: Boolean(parsed.values.yes),
     verbose: Boolean(parsed.values.verbose),
     noLog: Boolean(parsed.values["no-log"]),
+    configureTavily: false,
   };
 }
 
@@ -198,8 +225,27 @@ async function readPackageVersion(): Promise<string> {
 
 async function promptForApiKey(terminalInput: ReadStream, terminalOutput: WriteStream): Promise<string> {
   terminalOutput.write(
-    "No OpenAI API key is configured.\nCreate one at https://platform.openai.com/api-keys\nOpenAI API key (input hidden): ",
+    "No OpenAI API key is configured.\nCreate one at https://platform.openai.com/api-keys\n",
   );
+  return promptForHiddenText(terminalInput, terminalOutput, "OpenAI API key (input hidden): ", "Sign-in cancelled.");
+}
+
+async function configureTavily(): Promise<void> {
+  if (input.isTTY !== true || output.isTTY !== true) {
+    throw new UsageError("--configure-tavily requires an interactive terminal.");
+  }
+  const apiKey = await promptForHiddenText(input, output, "Tavily API key (input hidden): ", "Tavily configuration cancelled.");
+  await saveTavilyApiKey(apiKey, new FileCredentialStore());
+  output.write("Tavily API key saved. Future runs will use it automatically.\n");
+}
+
+async function promptForHiddenText(
+  terminalInput: ReadStream,
+  terminalOutput: WriteStream,
+  prompt: string,
+  cancellationMessage: string,
+): Promise<string> {
+  terminalOutput.write(prompt);
   const wasRaw = terminalInput.isRaw;
   terminalInput.setRawMode(true);
   terminalInput.resume();
@@ -221,7 +267,7 @@ async function promptForApiKey(terminalInput: ReadStream, terminalOutput: WriteS
         if (byte === 3) {
           cleanup();
           terminalOutput.write("\n");
-          reject(new Error("Sign-in cancelled."));
+          reject(new Error(cancellationMessage));
           return;
         }
         if (byte === 4 && value.length === 0) {
@@ -369,7 +415,29 @@ function optionalPositiveInteger(value: string | undefined, flag: string): numbe
 class UsageError extends Error {}
 
 function printHelp(): void {
-  output.write(`Usage: froe [options] [task...]\n\nRun without a task in an interactive terminal to start a conversation.\n\nOptions:\n  -w, --workspace <path>  Workspace directory (default: current directory)\n      --add-dir <path>     Additional directory with read/write access (repeatable)\n      --base-url <url>     OpenAI-compatible API endpoint\n  -m, --model <id>        OpenAI-compatible model (default: gpt-5.6-terra)\n      --reasoning <level>  none, low, medium, high, xhigh, or max\n      --image <path>       Attach a PNG, JPEG, WEBP, or GIF to the first prompt (repeatable)\n  -c, --config <path>     Additional user-controlled JSON configuration\n      --max-turns <n>      Maximum model turns per message\n  -y, --yes               Approve ordinary policy prompts, never sandbox exceptions\n  -v, --verbose           Show full non-sensitive tool output\n      --no-log            Do not write a local run record\n      --no-update         Skip the automatic update check for this invocation\n      --version           Show the installed package version\n  -h, --help              Show this help\n`);
+  output.write([
+    "Usage: froe [options] [task...]",
+    "",
+    "Run without a task in an interactive terminal to start a conversation.",
+    "",
+    "Options:",
+    "  -w, --workspace <path>  Workspace directory (default: current directory)",
+    "      --add-dir <path>     Additional directory with read/write access (repeatable)",
+    "      --base-url <url>     OpenAI-compatible API endpoint",
+    "  -m, --model <id>        OpenAI-compatible model (default: gpt-5.6-terra)",
+    "      --reasoning <level>  none, low, medium, high, xhigh, or max",
+    "      --image <path>       Attach a PNG, JPEG, WEBP, or GIF to the first prompt (repeatable)",
+    "  -c, --config <path>     Additional user-controlled JSON configuration",
+    "      --max-turns <n>      Maximum model turns per message",
+    "  -y, --yes               Approve ordinary policy prompts, never sandbox exceptions",
+    "  -v, --verbose           Show full non-sensitive tool output",
+    "      --no-log            Do not write a local run record",
+    "      --no-update         Skip the automatic update check for this invocation",
+    "      --configure-tavily  Save a Tavily API key in Froe's private credential file",
+    "      --version           Show the installed package version",
+    "  -h, --help              Show this help",
+    "",
+  ].join("\n"));
 }
 
 main().catch((error: unknown) => {

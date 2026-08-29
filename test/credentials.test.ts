@@ -7,8 +7,9 @@ import {
   DEFAULT_OPENAI_BASE_URL,
   FileCredentialStore,
   resolveOpenAICredentials,
+  resolveTavilyApiKey,
+  saveTavilyApiKey,
   type CredentialStore,
-  type OpenAICredentials,
   type StoredCredentials,
 } from "../src/credentials.js";
 
@@ -26,7 +27,7 @@ class MemoryCredentialStore implements CredentialStore {
     return this.value;
   }
 
-  async save(credentials: OpenAICredentials): Promise<void> {
+  async save(credentials: StoredCredentials): Promise<void> {
     this.saves += 1;
     this.value = credentials;
   }
@@ -85,6 +86,43 @@ test("the first interactive run prompts for and saves the complete connection", 
   assert.deepEqual(store.value, credentials);
   assert.equal(store.saves, 1);
   assert.equal(savedNotification, true);
+});
+
+test("saving a Tavily key preserves the OpenAI connection", async () => {
+  const store = new MemoryCredentialStore({ apiKey: "openai-key", baseURL: "https://api.example/v1" });
+
+  await saveTavilyApiKey(" tavily-key ", store);
+
+  assert.deepEqual(store.value, {
+    apiKey: "openai-key",
+    baseURL: "https://api.example/v1",
+    tavilyApiKey: "tavily-key",
+  });
+  assert.equal(await resolveTavilyApiKey({ store }), "tavily-key");
+});
+
+test("saving an OpenAI connection preserves the Tavily key", async () => {
+  const store = new MemoryCredentialStore({ tavilyApiKey: "tavily-key" });
+
+  await resolveOpenAICredentials({
+    interactive: true,
+    promptApiKey: async () => "openai-key",
+    promptBaseURL: async () => "https://api.example/v1",
+    store,
+  });
+
+  assert.deepEqual(store.value, {
+    apiKey: "openai-key",
+    baseURL: "https://api.example/v1",
+    tavilyApiKey: "tavily-key",
+  });
+});
+
+test("a Tavily environment key overrides the saved key", async () => {
+  const store = new MemoryCredentialStore({ tavilyApiKey: "saved-key" });
+
+  assert.equal(await resolveTavilyApiKey({ environmentApiKey: " environment-key ", store }), "environment-key");
+  assert.equal(store.loads, 0);
 });
 
 test("an empty first-run Base URL selects the OpenAI default", async () => {
@@ -157,8 +195,11 @@ test("file credentials are private and can be loaded again", async () => {
   const path = join(root, "nested", "credentials.json");
   const store = new FileCredentialStore(path);
 
-  await store.save({ apiKey: "saved-key", baseURL: "https://saved.example/v1" });
+  await saveTavilyApiKey("tavily-key", store);
+  assert.deepEqual(await store.load(), { tavilyApiKey: "tavily-key" });
 
-  assert.deepEqual(await store.load(), { apiKey: "saved-key", baseURL: "https://saved.example/v1" });
+  await store.save({ apiKey: "saved-key", baseURL: "https://saved.example/v1", tavilyApiKey: "tavily-key" });
+
+  assert.deepEqual(await store.load(), { apiKey: "saved-key", baseURL: "https://saved.example/v1", tavilyApiKey: "tavily-key" });
   if (process.platform !== "win32") assert.equal((await stat(path)).mode & 0o777, 0o600);
 });

@@ -2,6 +2,7 @@ import { access, lstat, mkdir, readdir, readFile, realpath, rename, stat, unlink
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { CommandSandboxError, type CommandSandbox, type SandboxException, type SandboxedCommandResult } from "./command-sandbox.js";
+import { TavilyWebSearch, TavilyWebSearchError, type WebSearch } from "./tavily-web-search.js";
 import type { ActionName, ActionRequest, ActionResult, FroeConfig, JsonValue, ToolDefinition } from "./types.js";
 
 const ignoredDirectories = new Set([".git", "node_modules", "dist", ".froe"]);
@@ -34,6 +35,15 @@ export const toolDefinitions: ToolDefinition[] = [
       query: requiredString("Literal text to find."),
       path: optionalString("Workspace-relative file or directory, or an absolute path in an additional authorized directory; defaults to the workspace root."),
       maxResults: optionalInteger("Maximum matches to return."),
+    }, ["query"]),
+  },
+  {
+    name: "web_search",
+    description: "Search the live web with Tavily. This requires TAVILY_API_KEY in Froe's environment and may consume Tavily API credits. Returns titled source URLs and excerpts.",
+    parameters: objectSchema({
+      query: requiredString("Web search query to send to Tavily."),
+      maxResults: optionalBoundedInteger("Maximum sources to return, from 1 to 10."),
+      searchDepth: optionalEnum("Search depth; advanced may use more Tavily credits.", ["basic", "advanced"]),
     }, ["query"]),
   },
   {
@@ -112,14 +122,16 @@ export class ActionRuntime {
   readonly #config: FroeConfig;
   readonly #approval: ApprovalGate;
   readonly #commandSandbox: CommandSandbox;
+  readonly #webSearch: WebSearch;
   readonly #hooks: ActionRuntimeHooks;
 
-  private constructor(workspace: string, additionalDirectories: string[], config: FroeConfig, approval: ApprovalGate, commandSandbox: CommandSandbox, hooks: ActionRuntimeHooks) {
+  private constructor(workspace: string, additionalDirectories: string[], config: FroeConfig, approval: ApprovalGate, commandSandbox: CommandSandbox, webSearch: WebSearch, hooks: ActionRuntimeHooks) {
     this.#workspace = workspace;
     this.#additionalDirectories = additionalDirectories;
     this.#config = config;
     this.#approval = approval;
     this.#commandSandbox = commandSandbox;
+    this.#webSearch = webSearch;
     this.#hooks = hooks;
   }
 
@@ -130,6 +142,7 @@ export class ActionRuntime {
     commandSandbox: CommandSandbox,
     hooks: ActionRuntimeHooks = {},
     additionalDirectories: string[] = [],
+    webSearch: WebSearch = new TavilyWebSearch(),
   ): Promise<ActionRuntime> {
     const root = await realpath(workspace);
     const rootStat = await stat(root);
@@ -140,7 +153,7 @@ export class ActionRuntime {
       if (!details.isDirectory()) throw new Error(`Additional directory is not a directory: ${path}`);
       return resolved;
     }));
-    return new ActionRuntime(root, [...new Set(additionalRoots)], config, approval, commandSandbox, hooks);
+    return new ActionRuntime(root, [...new Set(additionalRoots)], config, approval, commandSandbox, webSearch, hooks);
   }
 
   get workspace(): string {
@@ -160,6 +173,8 @@ export class ActionRuntime {
           return success(request, await this.readFile(parseReadArgs(request.arguments)));
         case "search":
           return success(request, await this.search(parseSearchArgs(request.arguments)));
+        case "web_search":
+          return success(request, await this.webSearch(parseWebSearchArgs(request.arguments), signal));
         case "apply_patch": {
           const changes = parsePatchArgs(request.arguments);
           await this.#requireApprovalIfNeeded(request, changes.some((change) => change.newText === null), changes.some((change) => change.newText === null) ? "Deleting a workspace file requires approval." : undefined);
@@ -255,6 +270,16 @@ export class ActionRuntime {
     const ripgrepResult = await this.searchWithRipgrep(args, target);
     if (ripgrepResult !== undefined) return ripgrepResult;
     return this.searchWithNode(args, target);
+  }
+
+  async webSearch(args: { query: string; maxResults: number; searchDepth: "basic" | "advanced" }, signal?: AbortSignal): Promise<JsonValue> {
+    if (!this.#webSearch.isConfigured) throw new ActionError("web_search_unavailable", "TAVILY_API_KEY is required to use web_search.");
+    try {
+      return await this.#webSearch.search({ ...args, ...(signal === undefined ? {} : { signal }) });
+    } catch (error) {
+      if (error instanceof TavilyWebSearchError) throw new ActionError(error.code, error.message);
+      throw error;
+    }
   }
 
   async searchWithNode(args: { query: string; path: string; maxResults: number }, target: string): Promise<JsonValue> {
@@ -509,7 +534,7 @@ export class ActionRuntime {
     const environment: NodeJS.ProcessEnv = {};
     for (const name of [...baseEnvironmentNames, ...this.#config.commandEnv]) {
       const value = process.env[name];
-      if (value !== undefined && name !== "OPENAI_API_KEY") environment[name] = value;
+      if (value !== undefined && name !== "OPENAI_API_KEY" && name !== "TAVILY_API_KEY") environment[name] = value;
     }
     return environment;
   }
@@ -567,6 +592,19 @@ function parseSearchArgs(value: unknown): { query: string; path: string; maxResu
     query: requiredStringValue(object.query, "query"),
     path: optionalStringValue(object.path, "path") ?? ".",
     maxResults: optionalPositiveInteger(object.maxResults, "maxResults") ?? 200,
+  };
+}
+
+function parseWebSearchArgs(value: unknown): { query: string; maxResults: number; searchDepth: "basic" | "advanced" } {
+  const object = argumentObject(value);
+  const searchDepth = object.searchDepth;
+  if (searchDepth !== undefined && searchDepth !== "basic" && searchDepth !== "advanced") {
+    throw new ActionError("invalid_arguments", "searchDepth must be basic or advanced");
+  }
+  return {
+    query: requiredStringValue(object.query, "query"),
+    maxResults: optionalBoundedPositiveInteger(object.maxResults, "maxResults", 10) ?? 5,
+    searchDepth: searchDepth ?? "basic",
   };
 }
 
@@ -678,6 +716,12 @@ function optionalPositiveInteger(value: unknown, name: string): number | undefin
   return value;
 }
 
+function optionalBoundedPositiveInteger(value: unknown, name: string, maximum: number): number | undefined {
+  const number = optionalPositiveInteger(value, name);
+  if (number !== undefined && number > maximum) throw new ActionError("invalid_arguments", `${name} must not exceed ${maximum}`);
+  return number;
+}
+
 function objectSchema(properties: Record<string, JsonValue>, required: string[] = []): { [key: string]: JsonValue } {
   return { type: "object", additionalProperties: false, properties, ...(required.length === 0 ? {} : { required }) };
 }
@@ -692,4 +736,12 @@ function optionalString(description: string): { [key: string]: JsonValue } {
 
 function optionalInteger(description: string): { [key: string]: JsonValue } {
   return { type: "integer", minimum: 1, description };
+}
+
+function optionalBoundedInteger(description: string): { [key: string]: JsonValue } {
+  return { type: "integer", minimum: 1, maximum: 10, description };
+}
+
+function optionalEnum(description: string, values: string[]): { [key: string]: JsonValue } {
+  return { type: "string", enum: values, description };
 }

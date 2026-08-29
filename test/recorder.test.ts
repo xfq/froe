@@ -31,3 +31,39 @@ test("metadata run records retain context compaction counts", async () => {
     else process.env.XDG_STATE_HOME = previous;
   }
 });
+
+test("metadata run records omit Tavily queries and source excerpts", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "froe-recorder-"));
+  const previous = process.env.XDG_STATE_HOME;
+  process.env.XDG_STATE_HOME = stateRoot;
+  try {
+    const recorder = await RunRecorder.create("metadata", false);
+    await recorder.record({
+      type: "action_requested",
+      action: { callId: "search", name: "web_search", arguments: { query: "private search query" } },
+    });
+    await recorder.record({
+      type: "action_result",
+      result: {
+        callId: "search",
+        name: "web_search",
+        ok: true,
+        output: {
+          query: "private search query",
+          results: [{ title: "Private source", url: "https://example.test", content: "private source excerpt" }],
+        },
+      },
+    });
+
+    const contents = await readFile(recorder.path as string, "utf8");
+    assert.doesNotMatch(contents, /private search query|Private source|private source excerpt/);
+    const records = contents.trim().split("\n").map((line) => JSON.parse(line) as { event: unknown });
+    assert.deepEqual(records.map((record) => record.event), [
+      { type: "action_requested", callId: "search", name: "web_search", summary: [] },
+      { type: "action_result", callId: "search", name: "web_search", ok: true, result: { sourceCount: 1 } },
+    ]);
+  } finally {
+    if (previous === undefined) delete process.env.XDG_STATE_HOME;
+    else process.env.XDG_STATE_HOME = previous;
+  }
+});

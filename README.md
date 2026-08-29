@@ -10,6 +10,7 @@ In the first release:
 
 - One-shot tasks and interactive conversations
 - OpenAI Responses API through the official SDK
+- Web search through Tavily
 - Automatic updates for npm-managed global installations
 - Local tools for listing, reading, searching, patching, and validating code
 - Automatic macOS Seatbelt containment for spawned commands
@@ -77,6 +78,13 @@ export OPENAI_BASE_URL="https://api.example.com/v1"
 froe --model "provider-model-id" "Fix the failing parser tests"
 ```
 
+To let Froe look up current external documentation or information, save a Tavily API key once from an interactive terminal. Froe stores it in the same owner-only credential file as the OpenAI connection, runs web searches automatically, and never passes the key to commands it runs:
+
+```sh
+froe --configure-tavily
+froe "Check the current framework docs and update this project"
+```
+
 Pass a task as arguments or pipe it through stdin. Use `--workspace` only when the target differs from the current directory:
 
 ```sh
@@ -122,9 +130,11 @@ OPENAI_API_KEY="..." OPENAI_BASE_URL="https://api.example.com/v1" \
 
 The provider must support the OpenAI Responses API, including function calling. OpenAI server-side context compaction starts at 200,000 tokens by default. Set `compactThresholdTokens` to a positive integer in user configuration to change the threshold, or to `null` for a compatible endpoint that does not support `context_management`. Set `autoUpdate` to `false` in user configuration to disable automatic updates. Workspace configuration may set only `model` and `limits`; it cannot select an API endpoint, control compaction or updates, pass environment variables, or weaken approvals. Setting `OPENAI_API_KEY` bypasses the saved connection; pair it with `OPENAI_BASE_URL` for a compatible endpoint, or froe uses the default OpenAI base URL. `--base-url` and user configuration override either Base URL. Credentials are never read from workspace configuration or `.env` files. See the [OpenAI compaction guide](https://developers.openai.com/api/docs/guides/compaction).
 
+Run `froe --configure-tavily` once from an interactive terminal to save a `TAVILY_API_KEY` in Froe's private credential file and enable the `web_search` action. Setting `TAVILY_API_KEY` in the environment temporarily overrides the saved key. Tavily search uses its documented Search API with bounded source excerpts. See the [Tavily Search API reference](https://docs.tavily.com/api-reference/endpoint/search).
+
 ## Safety model
 
-froe can read and search the Workspace, apply exact text patches, and run ordinary commands automatically. Use repeatable `--add-dir <path>` flags to grant the run read/write access to named directories outside the Workspace; local file actions use absolute paths for those directories. On macOS, every spawned command runs under a generated Seatbelt profile that can read only the Workspace, declared additional directories, its temporary directory, required system runtime locations, and the resolved Node toolchain; it can write only to the Workspace, declared additional directories, and temporary directory, and cannot access the network. The child receives the temporary directory as its home directory, so it cannot discover user credentials through `HOME`. Froe itself, its run record, approval prompt, credentials, and OpenAI connection stay outside that child-process sandbox.
+froe can read and search the Workspace, apply exact text patches, and run ordinary commands automatically. If a Tavily key has been configured, it can also request a web search automatically. Use repeatable `--add-dir <path>` flags to grant the run read/write access to named directories outside the Workspace; local file actions use absolute paths for those directories. On macOS, every spawned command runs under a generated Seatbelt profile that can read only the Workspace, declared additional directories, its temporary directory, required system runtime locations, and the resolved Node toolchain; it can write only to the Workspace, declared additional directories, and temporary directory, and cannot access the network. The child receives the temporary directory as its home directory, so it cannot discover user credentials through `HOME`. Froe itself, its run record, approval prompt, credentials, OpenAI connection, and Tavily connection stay outside that child-process sandbox.
 
 froe only edits UTF-8 text files inside the Workspace or directories explicitly passed through `--add-dir`. It rejects symbolic links, undeclared paths, binary data, mode changes, and renames. Existing Git changes are allowed; froe never commits, resets, or rolls them back.
 

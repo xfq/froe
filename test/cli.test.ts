@@ -49,7 +49,7 @@ test("CLI prints its package version without starting a run", async () => {
   assert.equal(stderr, "");
 });
 
-test("CLI help documents attachments, additional directories, and update control", async () => {
+test("CLI help documents attachments, additional directories, update control, and Tavily setup", async () => {
   const repository = new URL("..", import.meta.url).pathname;
   const tsx = new URL("../node_modules/.bin/tsx", import.meta.url).pathname;
   const { stdout, stderr } = await execFile(tsx, ["src/cli.ts", "--help"], {
@@ -61,6 +61,7 @@ test("CLI help documents attachments, additional directories, and update control
   assert.match(stderr, /--image <path>.*repeatable/);
   assert.match(stderr, /--add-dir <path>.*repeatable/);
   assert.match(stderr, /--no-update.*automatic update check/);
+  assert.match(stderr, /--configure-tavily.*private credential file/);
 });
 
 test("CLI accepts repeated additional directory options", async () => {
@@ -74,4 +75,18 @@ test("CLI accepts repeated additional directory options", async () => {
 
   assert.equal(stdout, `froe ${manifest.version}\n`);
   assert.equal(stderr, "");
+});
+
+test("Tavily setup is an interactive command that does not start a coding run", async () => {
+  const repository = new URL("..", import.meta.url).pathname;
+  const tsx = new URL("../node_modules/.bin/tsx", import.meta.url).pathname;
+
+  await assert.rejects(
+    execFile(tsx, ["src/cli.ts", "--configure-tavily"], { cwd: repository, encoding: "utf8" }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(String((error as { stderr?: unknown }).stderr), /--configure-tavily requires an interactive terminal/);
+      return true;
+    },
+  );
 });

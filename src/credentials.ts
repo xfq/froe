@@ -4,12 +4,13 @@ import { dirname, join } from "node:path";
 
 export interface CredentialStore {
   load(): Promise<StoredCredentials | undefined>;
-  save(credentials: OpenAICredentials): Promise<void>;
+  save(credentials: StoredCredentials): Promise<void>;
 }
 
 export interface StoredCredentials {
   apiKey?: string;
   baseURL?: string;
+  tavilyApiKey?: string;
 }
 
 export interface OpenAICredentials {
@@ -25,6 +26,11 @@ export interface ResolveCredentialsOptions {
   promptBaseURL: (defaultValue: string) => Promise<string>;
   store: CredentialStore;
   onSaved?: () => void;
+}
+
+export interface ResolveTavilyApiKeyOptions {
+  environmentApiKey?: string;
+  store: CredentialStore;
 }
 
 export const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
@@ -64,10 +70,23 @@ export async function resolveOpenAICredentials(options: ResolveCredentialsOption
   baseURL ??= DEFAULT_OPENAI_BASE_URL;
 
   if (shouldSave) {
-    await options.store.save({ apiKey, baseURL });
+    await options.store.save({ ...stored, apiKey, baseURL });
     options.onSaved?.();
   }
   return { apiKey, baseURL };
+}
+
+export async function resolveTavilyApiKey(options: ResolveTavilyApiKeyOptions): Promise<string | undefined> {
+  const environmentApiKey = normalizedKey(options.environmentApiKey);
+  if (environmentApiKey !== undefined) return environmentApiKey;
+  return normalizedKey((await options.store.load())?.tavilyApiKey);
+}
+
+export async function saveTavilyApiKey(apiKey: string, store: CredentialStore): Promise<void> {
+  const normalizedApiKey = normalizedKey(apiKey);
+  if (normalizedApiKey === undefined) throw new Error("A Tavily API key is required to continue.");
+  const existing = await store.load();
+  await store.save({ ...existing, tavilyApiKey: normalizedApiKey });
 }
 
 export class FileCredentialStore implements CredentialStore {
@@ -98,28 +117,36 @@ export class FileCredentialStore implements CredentialStore {
       const reason = error instanceof Error ? error.message : String(error);
       throw new Error(`Cannot parse credentials ${this.path}: ${reason}`);
     }
-    if (!isRecord(parsed) || typeof parsed.openaiApiKey !== "string" || normalizedKey(parsed.openaiApiKey) === undefined) {
-      throw new Error(`Credentials ${this.path} must contain a non-empty openaiApiKey`);
+    if (!isRecord(parsed)) throw new Error(`Credentials ${this.path} must be an object`);
+    const apiKey = parsed.openaiApiKey === undefined ? undefined : stringKey(parsed.openaiApiKey, `${this.path}.openaiApiKey`);
+    const tavilyApiKey = parsed.tavilyApiKey === undefined ? undefined : stringKey(parsed.tavilyApiKey, `${this.path}.tavilyApiKey`);
+    if (apiKey === undefined && tavilyApiKey === undefined) {
+      throw new Error(`Credentials ${this.path} must contain a non-empty openaiApiKey or tavilyApiKey`);
     }
     if (parsed.openaiBaseURL !== undefined && typeof parsed.openaiBaseURL !== "string") {
       throw new Error(`Credentials ${this.path}.openaiBaseURL must be a string`);
     }
     const baseURL = normalizedBaseURL(parsed.openaiBaseURL as string | undefined);
     return {
-      apiKey: parsed.openaiApiKey.trim(),
+      ...(apiKey === undefined ? {} : { apiKey }),
       ...(baseURL === undefined ? {} : { baseURL }),
+      ...(tavilyApiKey === undefined ? {} : { tavilyApiKey }),
     };
   }
 
-  async save(credentials: OpenAICredentials): Promise<void> {
+  async save(credentials: StoredCredentials): Promise<void> {
     const apiKey = normalizedKey(credentials.apiKey);
-    if (apiKey === undefined) throw new Error("Cannot save an empty OpenAI API key");
     const baseURL = normalizedBaseURL(credentials.baseURL);
-    if (baseURL === undefined) throw new Error("Cannot save an empty OpenAI Base URL");
+    const tavilyApiKey = normalizedKey(credentials.tavilyApiKey);
+    if (apiKey === undefined && tavilyApiKey === undefined) throw new Error("Cannot save empty credentials");
+    const serialized: Record<string, string> = {};
+    if (apiKey !== undefined) serialized.openaiApiKey = apiKey;
+    if (baseURL !== undefined) serialized.openaiBaseURL = baseURL;
+    if (tavilyApiKey !== undefined) serialized.tavilyApiKey = tavilyApiKey;
     await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
     await writeFile(
       this.path,
-      `${JSON.stringify({ openaiApiKey: apiKey, openaiBaseURL: baseURL }, null, 2)}\n`,
+      `${JSON.stringify(serialized, null, 2)}\n`,
       { encoding: "utf8", mode: 0o600 },
     );
     if (process.platform !== "win32") await chmod(this.path, 0o600);
@@ -133,6 +160,11 @@ export function defaultCredentialPath(): string {
 function normalizedKey(value: string | undefined): string | undefined {
   const normalized = value?.trim();
   return normalized ? normalized : undefined;
+}
+
+function stringKey(value: unknown, path: string): string {
+  if (typeof value !== "string" || normalizedKey(value) === undefined) throw new Error(`Credentials ${path} must be a non-empty string`);
+  return value.trim();
 }
 
 function normalizedBaseURL(value: string | undefined, useDefaultForEmpty = false): string | undefined {

@@ -60,6 +60,7 @@ function resultMetadata(name: string, value: unknown): object {
   if (name === "apply_patch") return { changed: value.changed };
   if (name === "read_file") return { path: value.path, startLine: value.startLine, endLine: value.endLine, truncated: value.truncated };
   if (name === "search") return { query: value.query, matchCount: Array.isArray(value.results) ? value.results.length : undefined, truncated: value.truncated };
+  if (name === "web_search") return { sourceCount: Array.isArray(value.results) ? value.results.length : undefined };
   return {};
 }
 

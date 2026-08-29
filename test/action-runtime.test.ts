@@ -6,6 +6,7 @@ import test from "node:test";
 import { ActionRuntime, type ApprovalGate, type ApprovalRequest } from "../src/action-runtime.js";
 import { CommandSandboxError, type CommandInvocation, type CommandSandbox, type SandboxedCommandResult, type SandboxException } from "../src/command-sandbox.js";
 import { defaultConfig, loadConfig } from "../src/config.js";
+import type { WebSearch, WebSearchRequest } from "../src/tavily-web-search.js";
 import type { ActionRequest, ActionResult } from "../src/types.js";
 
 class FixedApproval implements ApprovalGate {
@@ -22,6 +23,16 @@ class FixedApproval implements ApprovalGate {
 class FallbackCommandSandbox implements CommandSandbox {
   async run(_command: CommandInvocation, _exceptions: SandboxException[] = []): Promise<SandboxedCommandResult> {
     throw new CommandSandboxError("command_start_failed", "No test command configured");
+  }
+}
+
+class RecordingWebSearch implements WebSearch {
+  readonly isConfigured = true;
+  readonly requests: WebSearchRequest[] = [];
+
+  async search(request: WebSearchRequest) {
+    this.requests.push(request);
+    return { query: request.query, results: [{ title: "Example", url: "https://example.test", content: "Result" }] };
   }
 }
 
@@ -139,25 +150,54 @@ test("search returns normalized, line-oriented matches", async () => {
   assert.deepEqual(value.results, [{ path: "notes.txt", line: 2, text: "needle here" }]);
 });
 
-test("commands strip the OpenAI key and pass timeout behavior through the sandbox seam", async () => {
+test("web search sends a bounded Tavily request without approval", async () => {
+  const root = await workspace();
+  const webSearch = new RecordingWebSearch();
+  const approval = new FixedApproval(false);
+  const instance = await ActionRuntime.create(root, defaultConfig, approval, new FallbackCommandSandbox(), {}, [], webSearch);
+  const result = await instance.execute(action("web_search", { query: "TypeScript release notes", maxResults: 3, searchDepth: "advanced" }));
+
+  assert.deepEqual(output(result), {
+    query: "TypeScript release notes",
+    results: [{ title: "Example", url: "https://example.test", content: "Result" }],
+  });
+  assert.deepEqual(webSearch.requests, [{ query: "TypeScript release notes", maxResults: 3, searchDepth: "advanced" }]);
+  assert.deepEqual(approval.requests, []);
+
+  const invalid = await instance.execute(action("web_search", { query: "TypeScript release notes", maxResults: 11 }));
+  assert.deepEqual(invalid.output, { code: "invalid_arguments", message: "maxResults must not exceed 10" });
+});
+
+test("commands strip provider keys and pass timeout behavior through the sandbox seam", async () => {
   const root = await workspace();
   const previous = process.env.OPENAI_API_KEY;
+  const previousTavily = process.env.TAVILY_API_KEY;
   process.env.OPENAI_API_KEY = "must-not-reach-child";
+  process.env.TAVILY_API_KEY = "must-not-reach-child-either";
   try {
     const commandSandbox: CommandSandbox = {
       async run(command): Promise<SandboxedCommandResult> {
         if (command.args[1]?.includes("OPENAI_API_KEY")) {
           return { exitCode: 0, signal: null, timedOut: false, output: command.env.OPENAI_API_KEY ?? "missing", truncated: false };
         }
+        if (command.args[1]?.includes("TAVILY_API_KEY")) {
+          return { exitCode: 0, signal: null, timedOut: false, output: command.env.TAVILY_API_KEY ?? "missing", truncated: false };
+        }
         return { exitCode: null, signal: "SIGTERM", timedOut: true, output: "", truncated: false };
       },
     };
-    const instance = await runtime(root, true, commandSandbox);
+    const instance = await ActionRuntime.create(root, { ...defaultConfig, commandEnv: ["TAVILY_API_KEY"] }, new FixedApproval(true), commandSandbox);
     const keyResult = await instance.execute(action("run_command", {
       executable: process.execPath,
       args: ["-e", "process.stdout.write(process.env.OPENAI_API_KEY ?? 'missing')"],
     }));
     assert.equal(output(keyResult).output, "missing");
+
+    const tavilyKeyResult = await instance.execute(action("run_command", {
+      executable: process.execPath,
+      args: ["-e", "process.stdout.write(process.env.TAVILY_API_KEY ?? 'missing')"],
+    }));
+    assert.equal(output(tavilyKeyResult).output, "missing");
 
     const timeoutResult = await instance.execute(action("run_command", {
       executable: process.execPath,
@@ -168,6 +208,8 @@ test("commands strip the OpenAI key and pass timeout behavior through the sandbo
   } finally {
     if (previous === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previous;
+    if (previousTavily === undefined) delete process.env.TAVILY_API_KEY;
+    else process.env.TAVILY_API_KEY = previousTavily;
   }
 });
 

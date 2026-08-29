@@ -18,6 +18,8 @@ export function formatActionDetails(action: Pick<ActionRequest, "name" | "argume
     case "list_files":
     case "search":
       return pathDetails(arguments_, true);
+    case "web_search":
+      return [];
     case "read_file":
       return pathDetails(arguments_);
     case "finish":
