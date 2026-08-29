@@ -1,7 +1,8 @@
-import { access, readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { access, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type { FroeConfig, JsonValue, Limits, LogMode, ReasoningEffort } from "./types.js";
+import type { FroeConfig, JsonValue, Limits, LogMode, McpServerConfig, ReasoningEffort } from "./types.js";
 
 const reasoningValues = new Set<ReasoningEffort>(["none", "low", "medium", "high", "xhigh", "max"]);
 const logValues = new Set<LogMode>(["metadata", "full"]);
@@ -22,9 +23,14 @@ export const defaultConfig: FroeConfig = {
     commandTimeoutMs: 120_000,
   },
   commandEnv: [],
+  mcpServers: {},
 };
 
-type ConfigLayer = Partial<Omit<FroeConfig, "limits">> & { limits?: Partial<Limits> };
+type ConfigLayer = Partial<Omit<FroeConfig, "limits" | "mcpServers">> & {
+  $schema?: string;
+  limits?: Partial<Limits>;
+  mcpServers?: Record<string, McpServerConfig>;
+};
 
 export interface ConfigOverrides {
   baseURL?: string;
@@ -42,7 +48,7 @@ export interface LoadConfigOptions {
 }
 
 export async function loadConfig(options: LoadConfigOptions): Promise<FroeConfig> {
-  const userPath = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "froe", "config.json");
+  const userPath = userConfigPath();
   const workspacePath = join(options.workspace, ".froe", "config.json");
   const userLayer = await readConfigIfPresent(userPath, "user");
   const workspaceLayer = await readConfigIfPresent(workspacePath, "workspace");
@@ -53,6 +59,28 @@ export async function loadConfig(options: LoadConfigOptions): Promise<FroeConfig
   return mergeConfig(defaultConfig, userLayer, workspaceLayer, explicitLayer, options.overrides);
 }
 
+export async function addMcpServer(name: string, server: McpServerConfig): Promise<void> {
+  const path = userConfigPath();
+  const parsed = parseMcpServers({ [name]: server }, path);
+  const userLayer = await readConfigIfPresent(path, "user");
+  if (userLayer?.mcpServers?.[name] !== undefined) {
+    throw new Error(`MCP server ${name} is already configured.`);
+  }
+  const next: ConfigLayer = {
+    ...userLayer,
+    mcpServers: { ...userLayer?.mcpServers, ...parsed },
+  };
+  await mkdir(dirname(path), { recursive: true });
+  const temporaryPath = join(dirname(path), `.config.${randomUUID()}.tmp`);
+  try {
+    await writeFile(temporaryPath, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+    await rename(temporaryPath, path);
+  } catch (error) {
+    await removeTemporaryConfig(temporaryPath);
+    throw error;
+  }
+}
+
 export function mergeConfig(
   base: FroeConfig,
   ...layers: Array<ConfigLayer | ConfigOverrides | undefined>
@@ -61,6 +89,7 @@ export function mergeConfig(
     ...base,
     limits: { ...base.limits },
     commandEnv: [...base.commandEnv],
+    mcpServers: { ...base.mcpServers },
   };
 
   for (const layer of layers) {
@@ -78,6 +107,7 @@ export function mergeConfig(
     if ("logging" in layer && layer.logging !== undefined) merged.logging = layer.logging;
     if ("provider" in layer && layer.provider !== undefined) merged.provider = layer.provider;
     if ("commandEnv" in layer && layer.commandEnv !== undefined) merged.commandEnv = [...layer.commandEnv];
+    if ("mcpServers" in layer && layer.mcpServers !== undefined) merged.mcpServers = { ...merged.mcpServers, ...layer.mcpServers };
     if ("limits" in layer && layer.limits !== undefined) Object.assign(merged.limits, layer.limits);
   }
 
@@ -107,13 +137,14 @@ async function readConfig(path: string, scope: "user" | "workspace"): Promise<Co
 
 function parseLayer(value: unknown, path: string, scope: "user" | "workspace"): ConfigLayer {
   const object = objectValue(value, path);
-  assertOnlyKeys(object, ["provider", "baseURL", "autoUpdate", "model", "reasoning", "compactThresholdTokens", "maxTurns", "logging", "limits", "commandEnv"], path);
+  assertOnlyKeys(object, ["$schema", "provider", "baseURL", "autoUpdate", "model", "reasoning", "compactThresholdTokens", "maxTurns", "logging", "limits", "commandEnv", "mcpServers"], path);
   if (scope === "workspace") {
-    const restricted = ["provider", "baseURL", "autoUpdate", "reasoning", "compactThresholdTokens", "maxTurns", "logging", "commandEnv"].find((key) => object[key] !== undefined);
+    const restricted = ["provider", "baseURL", "autoUpdate", "reasoning", "compactThresholdTokens", "maxTurns", "logging", "commandEnv", "mcpServers"].find((key) => object[key] !== undefined);
     if (restricted !== undefined) throw new Error(`${path}.${restricted} is allowed only in user configuration`);
   }
   const layer: ConfigLayer = {};
 
+  if (object.$schema !== undefined) layer.$schema = stringValue(object.$schema, `${path}.$schema`);
   if (object.provider !== undefined) {
     if (object.provider !== "openai") throw new Error(`${path}.provider must be "openai" in this release`);
     layer.provider = "openai";
@@ -141,6 +172,10 @@ function parseLayer(value: unknown, path: string, scope: "user" | "workspace"): 
     if (scope === "workspace") throw new Error(`${path}.commandEnv is allowed only in user configuration`);
     layer.commandEnv = stringArray(object.commandEnv, `${path}.commandEnv`);
   }
+  if (object.mcpServers !== undefined) {
+    if (scope === "workspace") throw new Error(`${path}.mcpServers is allowed only in user configuration`);
+    layer.mcpServers = parseMcpServers(object.mcpServers, `${path}.mcpServers`);
+  }
   if (object.limits !== undefined) {
     const limits = objectValue(object.limits, `${path}.limits`);
     assertOnlyKeys(limits, ["readLines", "readBytes", "searchResults", "commandOutputBytes", "commandTimeoutMs"], `${path}.limits`);
@@ -166,6 +201,36 @@ function validateResolvedConfig(config: FroeConfig): void {
     if (!Number.isSafeInteger(value) || value < 1) throw new Error(`limits.${key} must be a positive integer`);
   }
   if (!Number.isSafeInteger(config.maxTurns) || config.maxTurns < 1) throw new Error("maxTurns must be a positive integer");
+  parseMcpServers(config.mcpServers, "mcpServers");
+}
+
+function userConfigPath(): string {
+  return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "froe", "config.json");
+}
+
+function parseMcpServers(value: unknown, path: string): Record<string, McpServerConfig> {
+  const servers = objectValue(value, path);
+  const parsed: Record<string, McpServerConfig> = {};
+  for (const [name, rawServer] of Object.entries(servers)) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/.test(name)) {
+      throw new Error(`${path}.${name} must use 1-32 letters, numbers, underscores, or hyphens`);
+    }
+    const server = objectValue(rawServer, `${path}.${name}`);
+    assertOnlyKeys(server, ["command", "args"], `${path}.${name}`);
+    parsed[name] = {
+      command: stringValue(server.command, `${path}.${name}.command`),
+      args: server.args === undefined ? [] : stringArray(server.args, `${path}.${name}.args`),
+    };
+  }
+  return parsed;
+}
+
+async function removeTemporaryConfig(path: string): Promise<void> {
+  try {
+    await unlink(path);
+  } catch {
+    // The temporary file was not created or was already moved into place.
+  }
 }
 
 function objectValue(value: unknown, path: string): Record<string, unknown> {

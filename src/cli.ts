@@ -9,12 +9,13 @@ import { fileURLToPath } from "node:url";
 import { ActionRuntime, type ApprovalGate, type ApprovalRequest } from "./action-runtime.js";
 import { formatActionDetails, formatApprovalPrompt, redactSensitiveText } from "./action-summary.js";
 import { createCommandSandbox } from "./command-sandbox.js";
-import { loadConfig } from "./config.js";
+import { addMcpServer, loadConfig } from "./config.js";
 import { runConversation } from "./conversation.js";
 import { DEFAULT_OPENAI_BASE_URL, FileCredentialStore, resolveOpenAICredentials, resolveTavilyApiKey, saveTavilyApiKey } from "./credentials.js";
 import { discoverProjectInstructions } from "./instructions.js";
 import { OpenAIProvider } from "./openai-provider.js";
 import { loadPromptImages } from "./prompt-images.js";
+import { McpManager } from "./mcp.js";
 import { RunRecorder } from "./recorder.js";
 import { runTask } from "./run.js";
 import { terminalMessages } from "./terminal-conversation.js";
@@ -38,6 +39,12 @@ interface RunCliOptions extends RunOptions {
 type CliOptions = ConfigureTavilyOptions | RunCliOptions;
 
 async function main(): Promise<void> {
+  const mcpCommand = parseMcpCommand(process.argv.slice(2));
+  if (mcpCommand !== undefined) {
+    await addMcpServer(mcpCommand.name, { command: mcpCommand.command, args: mcpCommand.args });
+    output.write(`MCP server ${mcpCommand.name} added.\n`);
+    return;
+  }
   const options = await parseOptions();
   if (options.configureTavily) {
     await configureTavily();
@@ -98,6 +105,8 @@ async function main(): Promise<void> {
     new TavilyWebSearch(tavilyApiKey === undefined ? {} : { apiKey: tavilyApiKey }),
   );
   const instructions = await discoverProjectInstructions(runtime.workspace);
+  const mcp = await McpManager.connect(options.config.mcpServers);
+  for (const failure of mcp.failures) output.write(`froe: MCP server ${failure.name} is unavailable: ${failure.message}\n`);
   const provider = new OpenAIProvider(options.config, credentials);
   const controller = new AbortController();
   let interrupted = false;
@@ -116,6 +125,7 @@ async function main(): Promise<void> {
         images: options.images,
         model: provider,
         runtime,
+        mcp,
         instructions,
         modelName: options.config.model,
         maxTurns: options.config.maxTurns,
@@ -125,6 +135,7 @@ async function main(): Promise<void> {
           provider.selectModel(model);
           output.write(`froe conversation · ${model}\n`);
         },
+        showMcpServers: () => printMcpServers(mcp),
       });
       process.exitCode = controller.signal.aborted ? 130 : 0;
     } else {
@@ -133,6 +144,7 @@ async function main(): Promise<void> {
         images: options.images,
         model: provider,
         runtime,
+        mcp,
         instructions,
         modelName: options.config.model,
         maxTurns: options.config.maxTurns,
@@ -143,7 +155,24 @@ async function main(): Promise<void> {
     }
   } finally {
     process.off("SIGINT", onInterrupt);
+    await mcp.close();
   }
+}
+
+interface McpAddCommand {
+  name: string;
+  command: string;
+  args: string[];
+}
+
+function parseMcpCommand(args: string[]): McpAddCommand | undefined {
+  if (args[0] !== "mcp") return undefined;
+  const name = args[2];
+  const command = args[4];
+  if (args[1] !== "add" || name === undefined || args[3] !== "--" || command === undefined) {
+    throw new UsageError("Usage: froe mcp add <name> -- <command> [args...]");
+  }
+  return { name, command, args: args.slice(5) };
 }
 
 async function parseOptions(): Promise<CliOptions> {
@@ -376,7 +405,16 @@ function createRenderer(verbose: boolean, recordPath: string | undefined, conver
 function printConversationBanner(model: string, workspace: string, recordPath: string | undefined): void {
   output.write(`froe conversation · ${model}\nworkspace: ${workspace}\n`);
   if (recordPath !== undefined) output.write(`record: ${recordPath}\n`);
-  output.write("Send a follow-up after each run, or type /exit to leave.\n");
+  output.write("Send a follow-up after each run, type /mcp to list active servers, or type /exit to leave.\n");
+}
+
+function printMcpServers(mcp: McpManager): void {
+  if (mcp.activeServers.length === 0) {
+    output.write("No active MCP servers.\n");
+    return;
+  }
+  output.write("Active MCP servers:\n");
+  for (const server of mcp.activeServers) output.write(`- ${server.name} (${server.toolCount} tools)\n`);
 }
 
 function writeActionDetails(action: { name: string; arguments: unknown }): void {
@@ -440,6 +478,10 @@ function printHelp(): void {
     "      --configure-tavily  Save a Tavily API key in Froe's private credential file",
     "      --version           Show the installed package version",
     "  -h, --help              Show this help",
+    "",
+    "MCP commands:",
+    "  froe mcp add <name> -- <command> [args...]",
+    "                          Save a user-controlled stdio MCP server",
     "",
   ].join("\n"));
 }

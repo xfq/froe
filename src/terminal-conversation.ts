@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline/promises";
 import type { ConversationMessage } from "./conversation.js";
 
-const slashCommands = ["/exit", "/init", "/model"];
+const slashCommands = ["/exit", "/init", "/mcp", "/model"];
 
 export type TerminalMessage = ConversationMessage;
 
@@ -22,6 +22,10 @@ export async function* terminalMessages(
       readline.close();
     }
     if (message === "/exit") return;
+    if (message === "/mcp") {
+      yield { type: "mcp" };
+      continue;
+    }
     if (message === "/model") {
       output.write("Usage: /model <model-id>\n");
       continue;

@@ -3,11 +3,13 @@ import type { RunOutcome } from "./types.js";
 
 export type ConversationMessage =
   | { type: "task"; text: string }
-  | { type: "model"; model: string };
+  | { type: "model"; model: string }
+  | { type: "mcp" };
 
 export interface ConversationRequest extends Omit<RunRequest, "task"> {
   messages: AsyncIterable<ConversationMessage>;
   selectModel(model: string): void | Promise<void>;
+  showMcpServers?(): void | Promise<void>;
 }
 
 export async function runConversation(request: ConversationRequest): Promise<RunOutcome[]> {
@@ -21,12 +23,17 @@ export async function runConversation(request: ConversationRequest): Promise<Run
       modelName = message.model;
       continue;
     }
+    if (message.type === "mcp") {
+      await request.showMcpServers?.();
+      continue;
+    }
 
     const outcome = await runTask({
       task: message.text,
       ...(images === undefined || images.length === 0 ? {} : { images }),
       model: request.model,
       runtime: request.runtime,
+      ...(request.mcp === undefined ? {} : { mcp: request.mcp }),
       instructions: request.instructions,
       modelName,
       maxTurns: request.maxTurns,

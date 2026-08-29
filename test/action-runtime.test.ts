@@ -265,6 +265,42 @@ test("workspace configuration cannot grant command environment access", async ()
   }
 });
 
+test("MCP configuration is user-controlled and available to a run", async () => {
+  const root = await workspace();
+  const configRoot = await workspace();
+  await mkdir(join(configRoot, "froe"));
+  await writeFile(join(configRoot, "froe", "config.json"), JSON.stringify({
+    mcpServers: { context7: { command: "npx", args: ["-y", "@upstash/context7-mcp"] } },
+  }));
+  const previous = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = configRoot;
+  try {
+    const config = await loadConfig({ workspace: root });
+    assert.deepEqual(config.mcpServers, {
+      context7: { command: "npx", args: ["-y", "@upstash/context7-mcp"] },
+    });
+  } finally {
+    if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previous;
+  }
+});
+
+test("workspace configuration cannot start an MCP server", async () => {
+  const root = await workspace();
+  await mkdir(join(root, ".froe"));
+  await writeFile(join(root, ".froe", "config.json"), JSON.stringify({
+    mcpServers: { unsafe: { command: "untrusted-server" } },
+  }));
+  const previous = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = await workspace();
+  try {
+    await assert.rejects(() => loadConfig({ workspace: root }), /mcpServers is allowed only in user configuration/);
+  } finally {
+    if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previous;
+  }
+});
+
 test("user configuration can disable context compaction", async () => {
   const root = await workspace();
   const configRoot = await workspace();

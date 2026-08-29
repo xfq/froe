@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { execFile as execFileCallback } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 import { promisify } from "node:util";
@@ -9,11 +11,25 @@ import { completeSlashCommand, terminalMessages } from "../src/terminal-conversa
 const execFile = promisify(execFileCallback);
 
 test("slash-command completion offers supported commands only", () => {
-  assert.deepEqual(completeSlashCommand("/"), [["/exit", "/init", "/model"], "/"]);
+  assert.deepEqual(completeSlashCommand("/"), [["/exit", "/init", "/mcp", "/model"], "/"]);
   assert.deepEqual(completeSlashCommand("/i"), [["/init"], "/i"]);
-  assert.deepEqual(completeSlashCommand("/m"), [["/model"], "/m"]);
+  assert.deepEqual(completeSlashCommand("/mcp"), [["/mcp"], "/mcp"]);
+  assert.deepEqual(completeSlashCommand("/m"), [["/mcp", "/model"], "/m"]);
   assert.deepEqual(completeSlashCommand("/unknown"), [[], "/unknown"]);
   assert.deepEqual(completeSlashCommand("implement feature"), [[], "implement feature"]);
+});
+
+test("terminal input treats MCP status as a control command", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const controller = new AbortController();
+  const messages = terminalMessages(input, output, controller.signal)[Symbol.asyncIterator]();
+
+  const status = messages.next();
+  input.write("/mcp\n");
+
+  assert.deepEqual(await status, { value: { type: "mcp" }, done: false });
+  controller.abort();
 });
 
 test("terminal input accepts follow-ups and releases stdin between messages", async () => {
@@ -89,6 +105,7 @@ test("CLI help documents attachments, additional directories, update control, an
   assert.match(stderr, /--add-dir <path>.*repeatable/);
   assert.match(stderr, /--no-update.*automatic update check/);
   assert.match(stderr, /--configure-tavily.*private credential file/);
+  assert.match(stderr, /froe mcp add <name> -- <command> \[args\.\.\.\]/);
 });
 
 test("CLI accepts repeated additional directory options", async () => {
@@ -116,4 +133,33 @@ test("Tavily setup is an interactive command that does not start a coding run", 
       return true;
     },
   );
+});
+
+test("MCP add stores a stdio server in user configuration without starting a run", async () => {
+  const repository = new URL("..", import.meta.url).pathname;
+  const tsx = new URL("../node_modules/.bin/tsx", import.meta.url).pathname;
+  const configHome = await mkdtemp(join(tmpdir(), "froe-mcp-config-"));
+  await mkdir(join(configHome, "froe"));
+  await writeFile(join(configHome, "froe", "config.json"), JSON.stringify({
+    $schema: "https://example.test/froe.schema.json",
+    model: "gpt-5.6-sol",
+  }));
+  const { stdout, stderr } = await execFile(
+    tsx,
+    ["src/cli.ts", "mcp", "add", "context7", "--", "npx", "-y", "@upstash/context7-mcp"],
+    { cwd: repository, encoding: "utf8", env: { ...process.env, XDG_CONFIG_HOME: configHome } },
+  );
+
+  assert.equal(stdout, "");
+  assert.equal(stderr, "MCP server context7 added.\n");
+  assert.deepEqual(JSON.parse(await readFile(join(configHome, "froe", "config.json"), "utf8")), {
+    $schema: "https://example.test/froe.schema.json",
+    model: "gpt-5.6-sol",
+    mcpServers: {
+      context7: {
+        command: "npx",
+        args: ["-y", "@upstash/context7-mcp"],
+      },
+    },
+  });
 });

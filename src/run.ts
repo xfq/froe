@@ -1,4 +1,5 @@
 import { formatInstructions, type ProjectInstruction } from "./instructions.js";
+import type { McpManager } from "./mcp.js";
 import { toolDefinitions, type ActionRuntime } from "./action-runtime.js";
 import type { ActionResult, EventSink, ModelProvider, PromptImage, RunEvent, RunOutcome, Verification } from "./types.js";
 
@@ -7,6 +8,7 @@ export interface RunRequest {
   images?: PromptImage[];
   model: ModelProvider;
   runtime: ActionRuntime;
+  mcp?: McpManager;
   instructions: ProjectInstruction[];
   modelName: string;
   maxTurns: number;
@@ -27,7 +29,7 @@ export async function runTask(request: RunRequest): Promise<RunOutcome> {
       const actions = [] as Array<{ callId: string; name: string; arguments: unknown }>;
       const modelTurn = {
         system,
-        tools: toolDefinitions,
+        tools: request.mcp === undefined ? toolDefinitions : [...toolDefinitions, ...request.mcp.tools],
         ...(turn === 1 ? { user: request.task } : {}),
         ...(turn === 1 && request.images !== undefined && request.images.length > 0 ? { images: request.images } : {}),
         ...(request.signal === undefined ? {} : { signal: request.signal }),
@@ -55,14 +57,14 @@ export async function runTask(request: RunRequest): Promise<RunOutcome> {
 
       for (const action of actions) {
         if (action.name === "finish") {
-          const result = await request.runtime.execute(action, request.signal);
+          const result = await executeAction(request, action);
           request.model.recordActionResults([result]);
           await emit({ type: "action_result", result });
           if (!result.ok) return finish(emit, blocked(actionErrorMessage(result), turn));
           const outcome = outcomeFromFinish(result, turn);
           return finish(emit, outcome);
         }
-        const result = await request.runtime.execute(action, request.signal);
+        const result = await executeAction(request, action);
         request.model.recordActionResults([result]);
         await emit({ type: "action_result", result });
       }
@@ -73,6 +75,11 @@ export async function runTask(request: RunRequest): Promise<RunOutcome> {
     const message = error instanceof Error ? error.message : String(error);
     return finish(emit, blocked(`Run failed before completion: ${message}`, turns));
   }
+}
+
+function executeAction(request: RunRequest, action: { callId: string; name: string; arguments: unknown }): Promise<ActionResult> {
+  if (request.mcp?.hasTool(action.name)) return request.mcp.execute(action, request.signal);
+  return request.runtime.execute(action, request.signal);
 }
 
 function outcomeFromFinish(result: ActionResult, turns: number): RunOutcome {

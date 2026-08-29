@@ -6,17 +6,6 @@ A froe is a hand tool that splits wood along its grain; this agent borrows that 
 
 In the project mark, the forward wedge is the tool's cutting edge, and the diagonal stroke is the cut following the grain.
 
-In the first release:
-
-- One-shot tasks and interactive conversations
-- OpenAI Responses API through the official SDK
-- Web search through Tavily
-- Automatic updates for npm-managed global installations
-- Local tools for listing, reading, searching, patching, and validating code
-- Automatic macOS Seatbelt containment for spawned commands
-- Explicit approval for destructive actions and narrow sandbox exceptions
-- Structured run records outside the target workspace
-
 ## Quick start
 
 Requires Node.js 22+. Command execution currently requires macOS; on other operating systems, file actions still work but `run_command` fails closed. Install froe globally with npm:
@@ -47,7 +36,7 @@ cd /path/to/your-project
 froe "Fix the failing parser tests"
 ```
 
-Run `froe` without a task in an interactive terminal to keep working in the same conversation. Each message starts a bounded run with the current model context and Workspace; blank messages are ignored, and `/exit` leaves the conversation. Press Tab after `/` to complete the available slash commands (`/exit`, `/init`, and `/model`):
+Run `froe` without a task in an interactive terminal to keep working in the same conversation. Each message starts a bounded run with the current model context and Workspace; blank messages are ignored, and `/exit` leaves the conversation. Press Tab after `/` to complete the available slash commands:
 
 ```text
 $ froe
@@ -123,7 +112,13 @@ Example user configuration:
   "limits": {
     "commandTimeoutMs": 120000
   },
-  "commandEnv": ["DATABASE_URL"]
+  "commandEnv": ["DATABASE_URL"],
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    }
+  }
 }
 ```
 
@@ -134,13 +129,25 @@ OPENAI_API_KEY="..." OPENAI_BASE_URL="https://api.example.com/v1" \
   froe --model "provider-model-id" "Inspect this repository"
 ```
 
-The provider must support the OpenAI Responses API, including function calling. OpenAI server-side context compaction starts at 200,000 tokens by default. Set `compactThresholdTokens` to a positive integer in user configuration to change the threshold, or to `null` for a compatible endpoint that does not support `context_management`. Set `autoUpdate` to `false` in user configuration to disable automatic updates. Workspace configuration may set only `model` and `limits`; it cannot select an API endpoint, control compaction or updates, pass environment variables, or weaken approvals. Setting `OPENAI_API_KEY` bypasses the saved connection; pair it with `OPENAI_BASE_URL` for a compatible endpoint, or froe uses the default OpenAI base URL. `--base-url` and user configuration override either Base URL. Credentials are never read from workspace configuration or `.env` files. See the [OpenAI compaction guide](https://developers.openai.com/api/docs/guides/compaction).
+The provider must support the OpenAI Responses API, including function calling. OpenAI server-side context compaction starts at 200,000 tokens by default. Set `compactThresholdTokens` to a positive integer in user configuration to change the threshold, or to `null` for a compatible endpoint that does not support `context_management`. Set `autoUpdate` to `false` in user configuration to disable automatic updates. Workspace configuration may set only `model` and `limits`; it cannot select an API endpoint, configure MCP, control compaction or updates, pass environment variables, or weaken approvals. Setting `OPENAI_API_KEY` bypasses the saved connection; pair it with `OPENAI_BASE_URL` for a compatible endpoint, or froe uses the default OpenAI base URL. `--base-url` and user configuration override either Base URL. Credentials are never read from workspace configuration or `.env` files. See the [OpenAI compaction guide](https://developers.openai.com/api/docs/guides/compaction).
+
+## MCP servers
+
+MCP servers extend the model with tools and context using the standard local stdio transport. Add one with a server label followed by the command it should run:
+
+```sh
+froe mcp add context7 -- npx -y @upstash/context7-mcp
+```
+
+This writes the command and its arguments under `mcpServers` in user configuration. On every run, froe starts the configured servers, discovers their tools, and exposes them to the model with names such as `mcp__context7__resolve-library-id`. A server that does not start successfully is reported and omitted; it does not prevent the rest of the run. In a conversation, use `/mcp` to view only active servers.
 
 Run `froe --configure-tavily` once from an interactive terminal to save a `TAVILY_API_KEY` in Froe's private credential file and enable the `web_search` action. Setting `TAVILY_API_KEY` in the environment temporarily overrides the saved key. Tavily search uses its documented Search API with bounded source excerpts. See the [Tavily Search API reference](https://docs.tavily.com/api-reference/endpoint/search).
 
 ## Safety model
 
 froe can read and search the Workspace, apply exact text patches, and run ordinary commands automatically. If a Tavily key has been configured, it can also request a web search automatically. Use repeatable `--add-dir <path>` flags to grant the run read/write access to named directories outside the Workspace; local file actions use absolute paths for those directories. On macOS, every spawned command runs under a generated Seatbelt profile that can read only the Workspace, declared additional directories, its temporary directory, required system runtime locations, and the resolved Node toolchain; it can write only to the Workspace, declared additional directories, and temporary directory, and cannot access the network. The child receives the temporary directory as its home directory, so it cannot discover user credentials through `HOME`. Froe itself, its run record, approval prompt, credentials, OpenAI connection, and Tavily connection stay outside that child-process sandbox.
+
+An MCP server is executable code explicitly selected in user configuration, so it is outside the local action sandbox and approval boundary. Add only servers you trust. Froe starts each one without a shell and gives it a fresh temporary home, cache, and minimal environment.
 
 froe only edits UTF-8 text files inside the Workspace or directories explicitly passed through `--add-dir`. It rejects symbolic links, undeclared paths, binary data, mode changes, and renames. Existing Git changes are allowed; froe never commits, resets, or rolls them back.
 

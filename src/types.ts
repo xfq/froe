@@ -13,6 +13,11 @@ export interface Limits {
   commandTimeoutMs: number;
 }
 
+export interface McpServerConfig {
+  command: string;
+  args: string[];
+}
+
 export interface FroeConfig {
   provider: "openai";
   /** Optional OpenAI-compatible API endpoint. */
@@ -25,6 +30,7 @@ export interface FroeConfig {
   logging: LogMode;
   limits: Limits;
   commandEnv: string[];
+  mcpServers: Record<string, McpServerConfig>;
 }
 
 export interface RunOptions {
@@ -46,7 +52,7 @@ export interface PromptImage {
 }
 
 export interface ToolDefinition {
-  name: ActionName;
+  name: string;
   description: string;
   parameters: { [key: string]: JsonValue };
 }

@@ -7,6 +7,7 @@ import { ActionRuntime, type ApprovalGate, type ApprovalRequest } from "../src/a
 import { CommandSandboxError, type CommandInvocation, type CommandSandbox, type SandboxedCommandResult, type SandboxException } from "../src/command-sandbox.js";
 import { runConversation } from "../src/conversation.js";
 import { defaultConfig } from "../src/config.js";
+import type { McpManager } from "../src/mcp.js";
 import { ScriptedModel } from "../src/scripted-model.js";
 import type { RunEvent } from "../src/types.js";
 import type { TerminalMessage } from "../src/terminal-conversation.js";
@@ -99,6 +100,80 @@ test("a conversation changes models between runs without treating the command as
     "gpt-5.6-terra",
     "gpt-5.6-sol",
   ]);
+});
+
+test("a conversation reports MCP status without starting a run", async () => {
+  const root = await mkdtemp(join(tmpdir(), "froe-conversation-"));
+  const runtime = await ActionRuntime.create(root, defaultConfig, new Approval(), new NoCommands());
+  let reports = 0;
+
+  const outcomes = await runConversation({
+    messages: messages({ type: "mcp" }),
+    images: [],
+    model: new ScriptedModel([]),
+    runtime,
+    instructions: [],
+    modelName: "scripted",
+    maxTurns: 2,
+    selectModel: () => {},
+    showMcpServers: () => {
+      reports += 1;
+    },
+  });
+
+  assert.deepEqual(outcomes, []);
+  assert.equal(reports, 1);
+});
+
+test("a conversation makes active MCP tools available to its runs", async () => {
+  const root = await mkdtemp(join(tmpdir(), "froe-conversation-"));
+  const runtime = await ActionRuntime.create(root, defaultConfig, new Approval(), new NoCommands());
+  const mcp = {
+    tools: [{
+      name: "mcp__docs__lookup",
+      description: "Look up documentation.",
+      parameters: { type: "object" },
+    }],
+    hasTool: (name: string) => name === "mcp__docs__lookup",
+    execute: async () => ({
+      callId: "lookup",
+      name: "mcp__docs__lookup",
+      ok: true,
+      output: { content: [{ type: "text", text: "MCP documentation" }] },
+    }),
+  } as unknown as McpManager;
+  const model = new ScriptedModel([
+    (turn) => {
+      assert.equal(turn.tools.some((tool) => tool.name === "mcp__docs__lookup"), true);
+      return [{
+        type: "action",
+        action: { callId: "lookup", name: "mcp__docs__lookup", arguments: {} },
+      }];
+    },
+    (turn) => {
+      assert.deepEqual(turn.actionResults?.[0], {
+        callId: "lookup",
+        name: "mcp__docs__lookup",
+        ok: true,
+        output: { content: [{ type: "text", text: "MCP documentation" }] },
+      });
+      return [finishAction("finish", "Used MCP documentation.")];
+    },
+  ]);
+
+  const outcomes = await runConversation({
+    messages: messages("Look up MCP documentation"),
+    images: [],
+    model,
+    runtime,
+    mcp,
+    instructions: [],
+    modelName: "scripted",
+    maxTurns: 2,
+    selectModel: () => {},
+  });
+
+  assert.equal(outcomes[0]?.status, "completed");
 });
 
 async function* messages(...values: Array<string | TerminalMessage>): AsyncGenerator<TerminalMessage> {

@@ -15,19 +15,20 @@ The current implementation has a small boundary:
 - one task and one model provider per run, with one provider reused across the runs in an interactive conversation;
 - one production provider, the OpenAI Responses API, behind a provider-neutral interface;
 - local actions scoped to one Workspace and explicitly declared additional directories, plus Tavily web search;
+- user-configured local stdio MCP servers;
 - automatic macOS Seatbelt containment for spawned commands, with interactive approval for narrow exceptions;
 - in-memory model continuation state bounded by provider-generated compaction checkpoints, with an optional append-only invocation record outside the workspace;
 - no resume protocol or long-lived daemon.
 
 ## System overview
 
-The CLI is the composition root. Before creating credentials, run records, or an action runtime, it lets the updater check npm-managed global installations for a newer stable release. It reads user-selected PNG, JPEG, WEBP, or non-animated GIF attachments from repeatable `--image` options and accepts repeatable `--add-dir` paths that extend the run's explicit filesystem authority alongside its primary Workspace. It verifies the current Responses API request limits before a run starts, and passes attachments only to the first prompt (or first conversation message). The conversation module sequences user messages into bounded runs while preserving one model provider and action runtime. Its terminal adapter owns line editing and Tab completion for the supported slash commands: `/init`, which remains a normal run task, and `/exit`, which closes the conversation without a run. The three deepest modules remain the run loop, which owns model/action orchestration and completion semantics; the action runtime, which owns authorized-directory effects and approval policy; and the command sandbox, which owns child-process containment and lifecycle. The Tavily adapter owns its HTTP boundary and response normalization. Provider-specific translation, persistence, configuration, credentials, automatic updates, and project-instruction discovery sit behind smaller seams.
+The CLI is the composition root. Before creating credentials, run records, or an action runtime, it lets the updater check npm-managed global installations for a newer stable release. It reads user-selected PNG, JPEG, WEBP, or non-animated GIF attachments from repeatable `--image` options and accepts repeatable `--add-dir` paths that extend the run's explicit filesystem authority alongside its primary Workspace. It verifies the current Responses API request limits before a run starts, and passes attachments only to the first prompt (or first conversation message). The conversation module sequences user messages into bounded runs while preserving one model provider and action runtime. Its terminal adapter owns line editing and Tab completion for `/init`, `/mcp`, `/model`, and `/exit`; only `/init` starts a normal run. The MCP manager starts user-configured stdio servers, discovers their tools, names them `mcp__<server>__<tool>`, and routes model calls back to their owner. The three deepest modules remain the run loop, which owns model/action orchestration and completion semantics; the action runtime, which owns authorized-directory effects and approval policy; and the command sandbox, which owns child-process containment and lifecycle. The Tavily adapter owns its HTTP boundary and response normalization. Provider-specific translation, persistence, configuration, credentials, automatic updates, and project-instruction discovery sit behind smaller seams.
 
 The OpenAI adapter requests server-side context compaction at a user-selected threshold. When the provider returns a compaction item, the adapter replaces all earlier continuation input with the checkpoint and subsequent output items, then emits a provider-neutral audit event with counts and the configured threshold.
 
 ## Action runtime
 
-The model sees seven actions. Their JSON schemas and implementations live together in [`src/action-runtime.ts`](./src/action-runtime.ts).
+The model sees seven local actions. Their JSON schemas and implementations live together in [`src/action-runtime.ts`](./src/action-runtime.ts).
 
 | Action | Behavior |
 | --- | --- |
@@ -45,6 +46,12 @@ Read-only file actions, `web_search`, and `finish` do not require approval. `web
 
 Known destructive executables and Git subcommands that can discard changes require destructive approval before execution. Other commands run automatically inside the command sandbox. Deletion through `apply_patch` remains independently approval-gated.
 
+### MCP tools
+
+`froe mcp add <name> -- <command> [args...]` writes a local stdio server definition to user configuration. At startup, [`src/mcp.ts`](./src/mcp.ts) gives every configured process a temporary home, cache, and minimal environment, sends MCP JSON-RPC initialization, then follows `tools/list` pagination. Each valid tool schema becomes a namespaced model function; `tools/call` results are returned as ordinary action results for the next model turn. `/mcp` reports the servers that completed discovery and their exposed tool count. Startup failures are reported and leave the server inactive without blocking the run.
+
+An MCP server is executable code chosen by the user, not a Workspace action. It is outside the action runtime's filesystem containment and approval boundary; only user-controlled configuration and explicit `--config` files may define it. Froe does not pass its OpenAI or Tavily connection values to the server.
+
 ## Configuration, credentials, and retained data
 
 ### Configuration precedence and authority
@@ -57,7 +64,7 @@ Configuration merges from lowest to highest precedence:
 4. an explicit user-controlled file passed with `--config`;
 5. CLI overrides.
 
-Automatic updates are enabled by default and can be disabled only by user configuration or the invocation's `--no-update` flag. Workspace configuration cannot control installation behavior.
+Automatic updates are enabled by default and can be disabled only by user configuration or the invocation's `--no-update` flag. MCP server definitions are likewise user-controlled: `mcpServers` may appear in user configuration or an explicit configuration file but never in Workspace configuration. Workspace configuration cannot control installation behavior or start external MCP programs.
 
 ### Tavily credential boundary
 
@@ -82,6 +89,7 @@ The automated suite tests behavior at the deepest public seams:
 - [`test/run.test.ts`](./test/run.test.ts) drives complete runs with `ScriptedModel`, including patching, approval denial, `/init`, and completion evidence;
 - [`test/conversation.test.ts`](./test/conversation.test.ts) sends multiple user messages through sequential runs and verifies follow-up context and session-level model changes;
 - [`test/cli.test.ts`](./test/cli.test.ts) verifies slash-command completion, model-command parsing, follow-up terminal input, release of the input stream before a run can request approval, and Tavily setup help;
+- [`test/mcp.test.ts`](./test/mcp.test.ts) starts a local stdio fixture to verify MCP initialization, tool discovery, namespaced exposure, and tool-result continuation without a network dependency;
 - [`test/action-runtime.test.ts`](./test/action-runtime.test.ts) exercises patch preflight, workspace confinement, symlink rejection, local search, Tavily requests, command timeouts, environment filtering, and workspace configuration restrictions;
 - [`test/tavily-web-search.test.ts`](./test/tavily-web-search.test.ts) verifies Tavily request construction, source normalization, missing credentials, and safe HTTP-failure handling without a live API call;
 - [`test/command-sandbox.test.ts`](./test/command-sandbox.test.ts) exercises the real macOS Seatbelt adapter;

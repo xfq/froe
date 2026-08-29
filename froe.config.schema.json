@@ -4,6 +4,7 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "$schema": { "type": "string" },
     "provider": { "const": "openai" },
     "baseURL": { "type": "string", "format": "uri" },
     "autoUpdate": {
@@ -36,6 +37,23 @@
       "type": "array",
       "items": { "type": "string" },
       "uniqueItems": true
+    },
+    "mcpServers": {
+      "type": "object",
+      "description": "User-controlled local stdio MCP servers.",
+      "propertyNames": { "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command"],
+        "properties": {
+          "command": { "type": "string", "minLength": 1 },
+          "args": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
     }
   }
 }
