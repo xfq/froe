@@ -47,7 +47,7 @@ cd /path/to/your-project
 froe "Fix the failing parser tests"
 ```
 
-Run `froe` without a task in an interactive terminal to keep working in the same conversation. Each message starts a bounded run with the same model context and Workspace; blank messages are ignored, and `/exit` leaves the conversation. Press Tab after `/` to complete the available slash commands (`/exit` and `/init`):
+Run `froe` without a task in an interactive terminal to keep working in the same conversation. Each message starts a bounded run with the current model context and Workspace; blank messages are ignored, and `/exit` leaves the conversation. Press Tab after `/` to complete the available slash commands (`/exit`, `/init`, and `/model`):
 
 ```text
 $ froe
@@ -58,8 +58,14 @@ you: Fix the failing parser tests
 ...
 you: Also add a regression test for the empty input case
 ...
+you: /model gpt-5.6-sol
+froe conversation · gpt-5.6-sol
+you: Re-run the failing test
+...
 you: /exit
 ```
+
+Use `/model <model-id>` to select the OpenAI-compatible model for later messages in the current conversation. It does not change configuration files or the default for the next invocation, and it retains the in-memory conversation context.
 
 Use `"/init"` to ask Froe to inspect the workspace and create a starter `AGENTS.md`. It preserves an existing root instruction file:
 

@@ -7,14 +7,22 @@ export class OpenAIProvider implements ModelProvider {
   readonly name = "openai";
   readonly #client: OpenAI;
   readonly #config: FroeConfig;
+  #model: string;
   #history: ResponseInputItem[] = [];
 
   constructor(config: FroeConfig, options: OpenAIProviderOptions = {}) {
     const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error("OPENAI_API_KEY is required for the openai provider");
     this.#config = config;
+    this.#model = config.model;
     const baseURL = options.baseURL ?? config.baseURL ?? process.env.OPENAI_BASE_URL;
     this.#client = new OpenAI({ apiKey, maxRetries: 2, ...(baseURL === undefined ? {} : { baseURL }) });
+  }
+
+  selectModel(model: string): void {
+    const normalized = model.trim();
+    if (!normalized) throw new Error("model cannot be empty");
+    this.#model = normalized;
   }
 
   recordActionResults(results: ActionResult[]): void {
@@ -31,7 +39,7 @@ export class OpenAIProvider implements ModelProvider {
     if (input.user !== undefined) this.#history.push(userMessage(input.user, input.images ?? []));
 
     const response = await this.#client.responses.create({
-      model: this.#config.model,
+      model: this.#model,
       instructions: input.system,
       input: this.#history,
       tools: input.tools.map((tool) => ({

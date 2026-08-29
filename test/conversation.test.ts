@@ -9,6 +9,7 @@ import { runConversation } from "../src/conversation.js";
 import { defaultConfig } from "../src/config.js";
 import { ScriptedModel } from "../src/scripted-model.js";
 import type { RunEvent } from "../src/types.js";
+import type { TerminalMessage } from "../src/terminal-conversation.js";
 
 class Approval implements ApprovalGate {
   async request(_request: ApprovalRequest): Promise<boolean> {
@@ -49,6 +50,7 @@ test("a conversation sends follow-up messages after a completed run", async () =
     instructions: [],
     modelName: "scripted",
     maxTurns: 2,
+    selectModel: () => {},
     emit: (event) => {
       events.push(event);
     },
@@ -62,8 +64,45 @@ test("a conversation sends follow-up messages after a completed run", async () =
   assert.equal(events.filter((event) => event.type === "run_finished").length, 2);
 });
 
-async function* messages(...values: string[]): AsyncGenerator<string> {
-  yield* values;
+test("a conversation changes models between runs without treating the command as a task", async () => {
+  const root = await mkdtemp(join(tmpdir(), "froe-conversation-"));
+  const runtime = await ActionRuntime.create(root, defaultConfig, new Approval(), new NoCommands());
+  const model = new ScriptedModel([
+    () => [finishAction("first-finish", "Handled the first message.")],
+    () => [finishAction("second-finish", "Handled the second message.")],
+  ]);
+  const selected: string[] = [];
+  const events: RunEvent[] = [];
+
+  await runConversation({
+    messages: messages(
+      "First task",
+      { type: "model", model: "gpt-5.6-sol" },
+      "Second task",
+    ),
+    images: [],
+    model,
+    runtime,
+    instructions: [],
+    modelName: "gpt-5.6-terra",
+    maxTurns: 2,
+    selectModel: (modelName) => {
+      selected.push(modelName);
+    },
+    emit: (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.deepEqual(selected, ["gpt-5.6-sol"]);
+  assert.deepEqual(events.filter((event) => event.type === "run_started").map((event) => event.model), [
+    "gpt-5.6-terra",
+    "gpt-5.6-sol",
+  ]);
+});
+
+async function* messages(...values: Array<string | TerminalMessage>): AsyncGenerator<TerminalMessage> {
+  for (const value of values) yield typeof value === "string" ? { type: "task", text: value } : value;
 }
 
 function finishAction(callId: string, summary: string) {

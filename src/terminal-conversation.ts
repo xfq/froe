@@ -1,12 +1,15 @@
 import { createInterface } from "node:readline/promises";
+import type { ConversationMessage } from "./conversation.js";
 
-const slashCommands = ["/exit", "/init"];
+const slashCommands = ["/exit", "/init", "/model"];
+
+export type TerminalMessage = ConversationMessage;
 
 export async function* terminalMessages(
   input: NodeJS.ReadableStream,
   output: NodeJS.WritableStream,
   signal: AbortSignal,
-): AsyncGenerator<string> {
+): AsyncGenerator<TerminalMessage> {
   while (!signal.aborted) {
     const readline = createInterface({ input, output, completer: completeSlashCommand });
     let message: string;
@@ -19,7 +22,17 @@ export async function* terminalMessages(
       readline.close();
     }
     if (message === "/exit") return;
-    if (message) yield message;
+    if (message === "/model") {
+      output.write("Usage: /model <model-id>\n");
+      continue;
+    }
+    if (message.startsWith("/model ")) {
+      const model = message.slice("/model ".length).trim();
+      if (model) yield { type: "model", model };
+      else output.write("Usage: /model <model-id>\n");
+      continue;
+    }
+    if (message) yield { type: "task", text: message };
   }
 }
 

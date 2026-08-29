@@ -9,8 +9,9 @@ import { completeSlashCommand, terminalMessages } from "../src/terminal-conversa
 const execFile = promisify(execFileCallback);
 
 test("slash-command completion offers supported commands only", () => {
-  assert.deepEqual(completeSlashCommand("/"), [["/exit", "/init"], "/"]);
+  assert.deepEqual(completeSlashCommand("/"), [["/exit", "/init", "/model"], "/"]);
   assert.deepEqual(completeSlashCommand("/i"), [["/init"], "/i"]);
+  assert.deepEqual(completeSlashCommand("/m"), [["/model"], "/m"]);
   assert.deepEqual(completeSlashCommand("/unknown"), [[], "/unknown"]);
   assert.deepEqual(completeSlashCommand("implement feature"), [[], "implement feature"]);
 });
@@ -23,17 +24,43 @@ test("terminal input accepts follow-ups and releases stdin between messages", as
 
   const first = messages.next();
   input.write("Inspect the workspace\n");
-  assert.deepEqual(await first, { value: "Inspect the workspace", done: false });
+  assert.deepEqual(await first, { value: { type: "task", text: "Inspect the workspace" }, done: false });
   assert.equal(input.listenerCount("data"), 0);
 
   const second = messages.next();
   input.write("Please check again\n");
-  assert.deepEqual(await second, { value: "Please check again", done: false });
+  assert.deepEqual(await second, { value: { type: "task", text: "Please check again" }, done: false });
   assert.equal(input.listenerCount("data"), 0);
 
   const exit = messages.next();
   input.write("/exit\n");
   assert.deepEqual(await exit, { value: undefined, done: true });
+});
+
+test("terminal input treats model selection as a control command", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const controller = new AbortController();
+  const messages = terminalMessages(input, output, controller.signal)[Symbol.asyncIterator]();
+  let terminalOutput = "";
+  const usage = new Promise<void>((resolve) => {
+    output.on("data", (chunk: Buffer) => {
+      terminalOutput += chunk.toString();
+      if (terminalOutput.includes("Usage: /model <model-id>\n")) resolve();
+    });
+  });
+
+  const selection = messages.next();
+  input.write("/model gpt-5.6-sol\n");
+  assert.deepEqual(await selection, { value: { type: "model", model: "gpt-5.6-sol" }, done: false });
+
+  const following = messages.next();
+  input.write("/model\n");
+  await usage;
+  input.write("Continue the task\n");
+  assert.deepEqual(await following, { value: { type: "task", text: "Continue the task" }, done: false });
+  assert.match(terminalOutput, /Usage: \/model <model-id>/);
+  controller.abort();
 });
 
 test("CLI prints its package version without starting a run", async () => {

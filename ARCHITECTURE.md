@@ -69,7 +69,7 @@ Tavily is optional and is enabled after `froe --configure-tavily` saves its key 
 
 ### Model continuation and compaction
 
-The OpenAI adapter sends `store: false` and requests server-side compaction at 200,000 tokens by default. When a response contains a compaction checkpoint, the adapter discards all earlier in-memory continuation items and retains the checkpoint plus subsequent output. The emitted `context_compacted` event contains only the previous and retained item counts and the configured threshold. Neither the opaque checkpoint nor source-bearing model history is written to terminal output or the run record.
+The OpenAI adapter sends `store: false` and requests server-side compaction at 200,000 tokens by default. `/model <model-id>` changes only the active provider request model in the current process; it preserves continuation input and does not persist a configuration override. When a response contains a compaction checkpoint, the adapter discards all earlier in-memory continuation items and retains the checkpoint plus subsequent output. The emitted `context_compacted` event contains only the previous and retained item counts and the configured threshold. Neither the opaque checkpoint nor source-bearing model history is written to terminal output or the run record.
 
 ### Prompt attachments
 
@@ -80,8 +80,8 @@ The OpenAI provider encodes CLI image attachments as base64 `input_image` conten
 The automated suite tests behavior at the deepest public seams:
 
 - [`test/run.test.ts`](./test/run.test.ts) drives complete runs with `ScriptedModel`, including patching, approval denial, `/init`, and completion evidence;
-- [`test/conversation.test.ts`](./test/conversation.test.ts) sends multiple user messages through sequential runs and verifies follow-up context;
-- [`test/cli.test.ts`](./test/cli.test.ts) verifies slash-command completion, follow-up terminal input, release of the input stream before a run can request approval, and Tavily setup help;
+- [`test/conversation.test.ts`](./test/conversation.test.ts) sends multiple user messages through sequential runs and verifies follow-up context and session-level model changes;
+- [`test/cli.test.ts`](./test/cli.test.ts) verifies slash-command completion, model-command parsing, follow-up terminal input, release of the input stream before a run can request approval, and Tavily setup help;
 - [`test/action-runtime.test.ts`](./test/action-runtime.test.ts) exercises patch preflight, workspace confinement, symlink rejection, local search, Tavily requests, command timeouts, environment filtering, and workspace configuration restrictions;
 - [`test/tavily-web-search.test.ts`](./test/tavily-web-search.test.ts) verifies Tavily request construction, source normalization, missing credentials, and safe HTTP-failure handling without a live API call;
 - [`test/command-sandbox.test.ts`](./test/command-sandbox.test.ts) exercises the real macOS Seatbelt adapter;

@@ -46,6 +46,7 @@ test("the OpenAI adapter sends stateless function-call turns to a local server",
     });
 
     provider.recordActionResults([{ callId: "call_finish", name: "finish", ok: true, output: { outcome: "blocked" } }]);
+    provider.selectModel("gpt-5.6-sol");
     const second = await collect(provider.turn({
       system: "test system",
       user: "Please check one more thing",
@@ -55,6 +56,8 @@ test("the OpenAI adapter sends stateless function-call turns to a local server",
     assert.equal(requests.length, 2);
     assert.equal(requests[0]?.store, false);
     assert.equal(requests[0]?.parallel_tool_calls, false);
+    assert.equal(requests[0]?.model, defaultConfig.model);
+    assert.equal(requests[1]?.model, "gpt-5.6-sol");
     const history = requests[1]?.input;
     assert.equal(Array.isArray(history), true);
     const items = history as unknown[];

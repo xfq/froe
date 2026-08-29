@@ -121,6 +121,10 @@ async function main(): Promise<void> {
         maxTurns: options.config.maxTurns,
         signal: controller.signal,
         emit: sink,
+        selectModel: (model) => {
+          provider.selectModel(model);
+          output.write(`froe conversation · ${model}\n`);
+        },
       });
       process.exitCode = controller.signal.aborted ? 130 : 0;
     } else {
