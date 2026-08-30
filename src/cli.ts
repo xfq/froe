@@ -19,7 +19,7 @@ import { McpManager } from "./mcp.js";
 import { RunRecorder } from "./recorder.js";
 import { runTask } from "./run.js";
 import { terminalMessages } from "./terminal-conversation.js";
-import type { EventSink, ReasoningEffort, RunEvent, RunOptions } from "./types.js";
+import type { EventSink, McpServerConfig, ReasoningEffort, RunEvent, RunOptions } from "./types.js";
 import { maybeAutoUpdate } from "./updater.js";
 import { TavilyWebSearch } from "./tavily-web-search.js";
 
@@ -41,7 +41,7 @@ type CliOptions = ConfigureTavilyOptions | RunCliOptions;
 async function main(): Promise<void> {
   const mcpCommand = parseMcpCommand(process.argv.slice(2));
   if (mcpCommand !== undefined) {
-    await addMcpServer(mcpCommand.name, { command: mcpCommand.command, args: mcpCommand.args });
+    await addMcpServer(mcpCommand.name, mcpCommand.server);
     output.write(`MCP server ${mcpCommand.name} added.\n`);
     return;
   }
@@ -161,18 +161,24 @@ async function main(): Promise<void> {
 
 interface McpAddCommand {
   name: string;
-  command: string;
-  args: string[];
+  server: McpServerConfig;
 }
 
 function parseMcpCommand(args: string[]): McpAddCommand | undefined {
   if (args[0] !== "mcp") return undefined;
   const name = args[2];
-  const command = args[4];
-  if (args[1] !== "add" || name === undefined || args[3] !== "--" || command === undefined) {
-    throw new UsageError("Usage: froe mcp add <name> -- <command> [args...]");
+  if (args[1] !== "add" || name === undefined) {
+    throw new UsageError("Usage: froe mcp add <name> (-- <command> [args...] | --url <url>)");
   }
-  return { name, command, args: args.slice(5) };
+  if (args[3] === "--") {
+    const command = args[4];
+    if (command === undefined) throw new UsageError("Usage: froe mcp add <name> (-- <command> [args...] | --url <url>)");
+    return { name, server: { command, args: args.slice(5) } };
+  }
+  if (args[3] === "--url" && args[4] !== undefined && args.length === 5) {
+    return { name, server: { url: args[4] } };
+  }
+  throw new UsageError("Usage: froe mcp add <name> (-- <command> [args...] | --url <url>)");
 }
 
 async function parseOptions(): Promise<CliOptions> {
@@ -482,6 +488,8 @@ function printHelp(): void {
     "MCP commands:",
     "  froe mcp add <name> -- <command> [args...]",
     "                          Save a user-controlled stdio MCP server",
+    "  froe mcp add <name> --url <url>",
+    "                          Save a user-controlled remote MCP server",
     "",
   ].join("\n"));
 }

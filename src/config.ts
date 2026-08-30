@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { access, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type { FroeConfig, JsonValue, Limits, LogMode, McpServerConfig, ReasoningEffort } from "./types.js";
+import type { FroeConfig, JsonValue, Limits, LogMode, McpRemoteServerConfig, McpServerConfig, McpStdioServerConfig, ReasoningEffort } from "./types.js";
 
 const reasoningValues = new Set<ReasoningEffort>(["none", "low", "medium", "high", "xhigh", "max"]);
 const logValues = new Set<LogMode>(["metadata", "full"]);
@@ -216,11 +216,16 @@ function parseMcpServers(value: unknown, path: string): Record<string, McpServer
       throw new Error(`${path}.${name} must use 1-32 letters, numbers, underscores, or hyphens`);
     }
     const server = objectValue(rawServer, `${path}.${name}`);
-    assertOnlyKeys(server, ["command", "args"], `${path}.${name}`);
-    parsed[name] = {
-      command: stringValue(server.command, `${path}.${name}.command`),
-      args: server.args === undefined ? [] : stringArray(server.args, `${path}.${name}.args`),
-    };
+    if (server.url !== undefined) {
+      assertOnlyKeys(server, ["url"], `${path}.${name}`);
+      parsed[name] = { url: urlValue(server.url, `${path}.${name}.url`) } satisfies McpRemoteServerConfig;
+    } else {
+      assertOnlyKeys(server, ["command", "args"], `${path}.${name}`);
+      parsed[name] = {
+        command: stringValue(server.command, `${path}.${name}.command`),
+        args: server.args === undefined ? [] : stringArray(server.args, `${path}.${name}.args`),
+      } satisfies McpStdioServerConfig;
+    }
   }
   return parsed;
 }

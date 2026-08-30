@@ -106,6 +106,7 @@ test("CLI help documents attachments, additional directories, update control, an
   assert.match(stderr, /--no-update.*automatic update check/);
   assert.match(stderr, /--configure-tavily.*private credential file/);
   assert.match(stderr, /froe mcp add <name> -- <command> \[args\.\.\.\]/);
+  assert.match(stderr, /froe mcp add <name> --url <url>/);
 });
 
 test("CLI accepts repeated additional directory options", async () => {
@@ -160,6 +161,25 @@ test("MCP add stores a stdio server in user configuration without starting a run
         command: "npx",
         args: ["-y", "@upstash/context7-mcp"],
       },
+    },
+  });
+});
+
+test("MCP add stores a remote server URL in user configuration without starting a run", async () => {
+  const repository = new URL("..", import.meta.url).pathname;
+  const tsx = new URL("../node_modules/.bin/tsx", import.meta.url).pathname;
+  const configHome = await mkdtemp(join(tmpdir(), "froe-mcp-config-"));
+  const { stdout, stderr } = await execFile(
+    tsx,
+    ["src/cli.ts", "mcp", "add", "my-server", "--url", "https://example.com/mcp"],
+    { cwd: repository, encoding: "utf8", env: { ...process.env, XDG_CONFIG_HOME: configHome } },
+  );
+
+  assert.equal(stdout, "");
+  assert.equal(stderr, "MCP server my-server added.\n");
+  assert.deepEqual(JSON.parse(await readFile(join(configHome, "froe", "config.json"), "utf8")), {
+    mcpServers: {
+      "my-server": { url: "https://example.com/mcp" },
     },
   });
 });

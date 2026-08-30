@@ -31,10 +31,17 @@ interface PendingRequest {
   removeAbortListener?: () => void;
 }
 
+interface McpConnection {
+  readonly active: boolean;
+  listTools(): Promise<McpTool[]>;
+  callTool(name: string, arguments_: { [key: string]: JsonValue }, signal?: AbortSignal): Promise<JsonValue>;
+  close(): Promise<void>;
+}
+
 export class McpManager {
-  readonly #clients = new Map<string, McpClient>();
+  readonly #clients = new Map<string, McpConnection>();
   readonly #tools: ToolDefinition[] = [];
-  readonly #toolTargets = new Map<string, { client: McpClient; toolName: string }>();
+  readonly #toolTargets = new Map<string, { client: McpConnection; toolName: string }>();
   readonly #activeServers: McpServerStatus[] = [];
   readonly #failures: McpServerFailure[] = [];
 
@@ -43,9 +50,9 @@ export class McpManager {
   static async connect(servers: Record<string, McpServerConfig>): Promise<McpManager> {
     const manager = new McpManager();
     for (const [name, config] of Object.entries(servers)) {
-      let client: McpClient | undefined;
+      let client: McpConnection | undefined;
       try {
-        client = await McpClient.connect(name, config);
+        client = await connectMcpServer(name, config);
         const tools = await client.listTools();
         let toolCount = 0;
         for (const tool of tools) {
@@ -106,7 +113,11 @@ export class McpManager {
   }
 }
 
-class McpClient {
+async function connectMcpServer(name: string, config: McpServerConfig): Promise<McpConnection> {
+  return "url" in config ? RemoteMcpClient.connect(name, config.url) : StdioMcpClient.connect(name, config);
+}
+
+class StdioMcpClient implements McpConnection {
   readonly #name: string;
   readonly #child: ChildProcessWithoutNullStreams;
   readonly #home: string;
@@ -135,7 +146,7 @@ class McpClient {
     });
   }
 
-  static async connect(name: string, config: McpServerConfig): Promise<McpClient> {
+  static async connect(name: string, config: Extract<McpServerConfig, { command: string }>): Promise<StdioMcpClient> {
     const home = await mkdtemp(join(tmpdir(), "froe-mcp-"));
     const child = spawn(config.command, config.args, {
       stdio: ["pipe", "pipe", "pipe"],
@@ -143,7 +154,7 @@ class McpClient {
       windowsHide: true,
       env: mcpEnvironment(home),
     });
-    const client = new McpClient(name, child, home);
+    const client = new StdioMcpClient(name, child, home);
     try {
       await client.request("initialize", {
         protocolVersion,
@@ -291,6 +302,236 @@ class McpClient {
     pending.removeAbortListener?.();
     return pending;
   }
+}
+
+class RemoteMcpClient implements McpConnection {
+  readonly #name: string;
+  readonly #url: URL;
+  readonly #controllers = new Set<AbortController>();
+  #nextId = 0;
+  #sessionId: string | undefined;
+  #initialized = false;
+  #closed = false;
+
+  private constructor(name: string, url: string) {
+    this.#name = name;
+    this.#url = new URL(url);
+  }
+
+  static async connect(name: string, url: string): Promise<RemoteMcpClient> {
+    const client = new RemoteMcpClient(name, url);
+    try {
+      await client.request("initialize", {
+        protocolVersion,
+        capabilities: {},
+        clientInfo: { name: "froe", version: "0.1.0" },
+      });
+      client.#initialized = true;
+      await client.notify("notifications/initialized");
+      return client;
+    } catch (error) {
+      await client.close();
+      throw error;
+    }
+  }
+
+  get active(): boolean {
+    return !this.#closed;
+  }
+
+  async listTools(): Promise<McpTool[]> {
+    const tools: McpTool[] = [];
+    let cursor: string | undefined;
+    do {
+      const response = record(await this.request("tools/list", cursor === undefined ? {} : { cursor }));
+      if (response === undefined || !Array.isArray(response.tools)) {
+        throw new Error(`MCP server ${this.#name} returned an invalid tools/list response.`);
+      }
+      for (const candidate of response.tools) {
+        const tool = parseTool(candidate);
+        if (tool !== undefined) tools.push(tool);
+      }
+      cursor = typeof response.nextCursor === "string" && response.nextCursor ? response.nextCursor : undefined;
+    } while (cursor !== undefined);
+    return tools;
+  }
+
+  async callTool(name: string, arguments_: { [key: string]: JsonValue }, signal?: AbortSignal): Promise<JsonValue> {
+    const response = await this.request("tools/call", { name, arguments: arguments_ }, signal);
+    const result = jsonValue(response);
+    if (result === undefined) throw new Error(`MCP server ${this.#name} returned a non-JSON tool result.`);
+    if (record(result)?.isError === true) {
+      throw new Error(`MCP tool ${name} failed: ${mcpErrorMessage(result)}`);
+    }
+    return result;
+  }
+
+  async close(): Promise<void> {
+    if (this.#closed) return;
+    this.#closed = true;
+    for (const controller of this.#controllers) controller.abort();
+    if (this.#sessionId === undefined) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+    try {
+      await fetch(this.#url, {
+        method: "DELETE",
+        headers: this.#headers("application/json"),
+        signal: controller.signal,
+      });
+    } catch {
+      // Closing a remote server must not turn cleanup into a run failure.
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async notify(method: string): Promise<void> {
+    await this.#send({ jsonrpc: "2.0", method });
+  }
+
+  async request(method: string, params: { [key: string]: JsonValue }, signal?: AbortSignal): Promise<unknown> {
+    if (this.#closed) throw new Error(`MCP server ${this.#name} is not running.`);
+    if (signal?.aborted) throw new Error("Run cancelled");
+    const id = ++this.#nextId;
+    return this.#send({ jsonrpc: "2.0", id, method, params }, signal, id);
+  }
+
+  async #send(message: object, signal?: AbortSignal, expectedId?: number): Promise<unknown> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+    const onAbort = (): void => controller.abort();
+    signal?.addEventListener("abort", onAbort, { once: true });
+    this.#controllers.add(controller);
+    try {
+      const response = await fetch(this.#url, {
+        method: "POST",
+        headers: this.#headers("application/json, text/event-stream", "application/json"),
+        body: JSON.stringify(message),
+        signal: controller.signal,
+      });
+      const sessionId = response.headers.get("mcp-session-id");
+      if (sessionId !== null) this.#sessionId = sessionId;
+      if (!response.ok) throw await remoteHttpError(this.#name, response);
+      if (expectedId === undefined) {
+        await response.body?.cancel();
+        return undefined;
+      }
+      if (response.status === 202) {
+        throw new Error(`MCP server ${this.#name} accepted ${messageMethod(message)} without a JSON-RPC response.`);
+      }
+      const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+      if (contentType === "application/json") return remoteJsonResponse(this.#name, await readRemoteBody(response, this.#name), expectedId);
+      if (contentType === "text/event-stream") return remoteSseResponse(response, this.#name, expectedId);
+      throw new Error(`MCP server ${this.#name} returned unsupported content type ${contentType === undefined ? "(none)" : contentType}.`);
+    } catch (error) {
+      if (signal?.aborted) throw new Error("Run cancelled");
+      if (controller.signal.aborted) {
+        throw new Error(`MCP server ${this.#name} did not answer within ${requestTimeoutMs / 1_000} seconds.`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+      this.#controllers.delete(controller);
+    }
+  }
+
+  #headers(accept: string, contentType?: string): Headers {
+    const headers = new Headers({ Accept: accept });
+    if (contentType !== undefined) headers.set("Content-Type", contentType);
+    if (this.#initialized) headers.set("MCP-Protocol-Version", protocolVersion);
+    if (this.#sessionId !== undefined) headers.set("Mcp-Session-Id", this.#sessionId);
+    return headers;
+  }
+}
+
+async function remoteHttpError(name: string, response: Response): Promise<Error> {
+  let detail = "";
+  try {
+    detail = (await readRemoteBody(response, name)).trim();
+  } catch {
+    // Preserve the HTTP status when an error body is malformed or too large.
+  }
+  return new Error(`MCP server ${name} rejected the request (${response.status}${response.statusText ? ` ${response.statusText}` : ""})${detail ? `: ${detail.slice(0, 1_000)}` : ""}`);
+}
+
+async function readRemoteBody(response: Response, name: string): Promise<string> {
+  const reader = response.body?.getReader();
+  if (reader === undefined) return "";
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let text = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maximumMessageBytes) throw new Error(`MCP server ${name} sent a message larger than ${maximumMessageBytes} bytes.`);
+      text += decoder.decode(value, { stream: true });
+    }
+    return `${text}${decoder.decode()}`;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+async function remoteSseResponse(response: Response, name: string, expectedId: number): Promise<unknown> {
+  const reader = response.body?.getReader();
+  if (reader === undefined) throw new Error(`MCP server ${name} returned an empty SSE response.`);
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let data: string[] = [];
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      if (Buffer.byteLength(buffer) > maximumMessageBytes) {
+        throw new Error(`MCP server ${name} sent a message larger than ${maximumMessageBytes} bytes.`);
+      }
+      let newline: number;
+      while ((newline = buffer.indexOf("\n")) !== -1) {
+        const line = buffer.slice(0, newline).replace(/\r$/, "");
+        buffer = buffer.slice(newline + 1);
+        if (line === "") {
+          if (data.length === 0) continue;
+          const result = remoteJsonResponse(name, data.join("\n"), expectedId, true);
+          data = [];
+          if (result !== undefined) return result;
+        } else if (line.startsWith("data:")) {
+          data.push(line.slice(5).replace(/^ /, ""));
+        }
+      }
+    }
+    throw new Error(`MCP server ${name} closed its SSE response before answering the request.`);
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+}
+
+function remoteJsonResponse(name: string, text: string, expectedId: number, allowUnrelated = false): unknown {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(`MCP server ${name} returned invalid JSON.`);
+  }
+  const message = record(parsed);
+  if (message === undefined) throw new Error(`MCP server ${name} returned an invalid JSON-RPC response.`);
+  if (message.id !== expectedId) {
+    if (allowUnrelated) return undefined;
+    throw new Error(`MCP server ${name} returned a response for an unexpected request.`);
+  }
+  if (message.error !== undefined) throw new Error(`MCP server ${name} rejected the request: ${jsonErrorMessage(message.error)}`);
+  if (!("result" in message)) throw new Error(`MCP server ${name} returned an invalid JSON-RPC response.`);
+  return message.result;
+}
+
+function messageMethod(message: object): string {
+  const value = record(message);
+  return typeof value?.method === "string" ? value.method : "the request";
 }
 
 function parseTool(value: unknown): McpTool | undefined {

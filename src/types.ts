@@ -13,10 +13,16 @@ export interface Limits {
   commandTimeoutMs: number;
 }
 
-export interface McpServerConfig {
+export interface McpStdioServerConfig {
   command: string;
   args: string[];
 }
+
+export interface McpRemoteServerConfig {
+  url: string;
+}
+
+export type McpServerConfig = McpStdioServerConfig | McpRemoteServerConfig;
 
 export interface FroeConfig {
   provider: "openai";

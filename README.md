@@ -117,6 +117,9 @@ Example user configuration:
     "context7": {
       "command": "npx",
       "args": ["-y", "@upstash/context7-mcp"]
+    },
+    "remote-docs": {
+      "url": "https://example.com/mcp"
     }
   }
 }
@@ -133,13 +136,19 @@ The provider must support the OpenAI Responses API, including function calling. 
 
 ## MCP servers
 
-MCP servers extend the model with tools and context using the standard local stdio transport. Add one with a server label followed by the command it should run:
+MCP servers extend the model with tools and context. Add a local stdio server with a server label followed by the command it should run:
 
 ```sh
 froe mcp add context7 -- npx -y @upstash/context7-mcp
 ```
 
-This writes the command and its arguments under `mcpServers` in user configuration. On every run, froe starts the configured servers, discovers their tools, and exposes them to the model with names such as `mcp__context7__resolve-library-id`. A server that does not start successfully is reported and omitted; it does not prevent the rest of the run. In a conversation, use `/mcp` to view only active servers.
+Add a remote MCP endpoint with its Streamable HTTP URL:
+
+```sh
+froe mcp add my-server --url https://example.com/mcp
+```
+
+Either command writes the server definition under `mcpServers` in user configuration. On every run, froe starts local servers or connects to remote endpoints, discovers their tools, and exposes them to the model with names such as `mcp__context7__resolve-library-id`. Remote connections use Streamable HTTP, including JSON and server-sent event responses and MCP session IDs. A server that cannot connect successfully is reported and omitted; it does not prevent the rest of the run. In a conversation, use `/mcp` to view only active servers.
 
 Run `froe --configure-tavily` once from an interactive terminal to save a `TAVILY_API_KEY` in Froe's private credential file and enable the `web_search` action. Setting `TAVILY_API_KEY` in the environment temporarily overrides the saved key. Tavily search uses its documented Search API with bounded source excerpts. See the [Tavily Search API reference](https://docs.tavily.com/api-reference/endpoint/search).
 
@@ -147,7 +156,7 @@ Run `froe --configure-tavily` once from an interactive terminal to save a `TAVIL
 
 froe can read and search the Workspace, apply exact text patches, and run ordinary commands automatically. If a Tavily key has been configured, it can also request a web search automatically. Use repeatable `--add-dir <path>` flags to grant the run read/write access to named directories outside the Workspace; local file actions use absolute paths for those directories. On macOS, every spawned command runs under a generated Seatbelt profile that can read only the Workspace, declared additional directories, its temporary directory, required system runtime locations, and the resolved Node toolchain; it can write only to the Workspace, declared additional directories, and temporary directory, and cannot access the network. The child receives the temporary directory as its home directory, so it cannot discover user credentials through `HOME`. Froe itself, its run record, approval prompt, credentials, OpenAI connection, and Tavily connection stay outside that child-process sandbox.
 
-An MCP server is executable code explicitly selected in user configuration, so it is outside the local action sandbox and approval boundary. Add only servers you trust. Froe starts each one without a shell and gives it a fresh temporary home, cache, and minimal environment.
+An MCP server is explicitly selected in user configuration, so it is outside the local action sandbox and approval boundary. Add only servers and remote URLs you trust: their tools and responses become model context, and a remote server receives each MCP request. Froe starts local servers without a shell and gives each one a fresh temporary home, cache, and minimal environment.
 
 froe only edits UTF-8 text files inside the Workspace or directories explicitly passed through `--add-dir`. It rejects symbolic links, undeclared paths, binary data, mode changes, and renames. Existing Git changes are allowed; froe never commits, resets, or rolls them back.
 

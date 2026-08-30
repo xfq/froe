@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -151,6 +152,82 @@ test("a cancelled MCP tool call stops waiting and ignores its late result", asyn
     if (deadline !== undefined) clearTimeout(deadline);
     await mcp.close();
   }
+});
+
+test("a remote Streamable HTTP MCP server exposes tools, keeps its session, and closes it", async () => {
+  const requests: Array<{ method: string; headers: Record<string, string | string[] | undefined>; body?: unknown }> = [];
+  const server = createServer(async (request, response) => {
+    if (request.method === "DELETE") {
+      requests.push({ method: "DELETE", headers: request.headers });
+      response.writeHead(204).end();
+      return;
+    }
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { id?: number; method?: string; params?: unknown };
+    requests.push({ method: "POST", headers: request.headers, body });
+    if (body.method === "initialize") {
+      response.writeHead(200, {
+        "Content-Type": "application/json",
+        "Mcp-Session-Id": "fixture-session",
+      }).end(JSON.stringify({
+        jsonrpc: "2.0",
+        id: body.id,
+        result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "fixture", version: "1.0.0" } },
+      }));
+      return;
+    }
+    if (body.method === "notifications/initialized") {
+      response.writeHead(202).end();
+      return;
+    }
+    if (body.method === "tools/list") {
+      response.writeHead(200, { "Content-Type": "text/event-stream" }).end(`data: ${JSON.stringify({
+        jsonrpc: "2.0",
+        id: body.id,
+        result: { tools: [{ name: "lookup", description: "Look up remote documentation.", inputSchema: { type: "object" } }] },
+      })}\n\n`);
+      return;
+    }
+    if (body.method === "tools/call") {
+      response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({
+        jsonrpc: "2.0",
+        id: body.id,
+        result: { content: [{ type: "text", text: "Remote MCP result." }] },
+      }));
+      return;
+    }
+    response.writeHead(400).end("Unexpected request");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address !== null && typeof address !== "string");
+  const mcp = await McpManager.connect({ remote: { url: `http://127.0.0.1:${address.port}/mcp` } });
+
+  try {
+    assert.deepEqual(mcp.activeServers, [{ name: "remote", toolCount: 1 }]);
+    const result = await mcp.execute({ callId: "lookup", name: "mcp__remote__lookup", arguments: { topic: "MCP" } });
+    assert.deepEqual(result, {
+      callId: "lookup",
+      name: "mcp__remote__lookup",
+      ok: true,
+      output: { content: [{ type: "text", text: "Remote MCP result." }] },
+    });
+  } finally {
+    await mcp.close();
+    await new Promise<void>((resolve, reject) => server.close((error) => error === undefined ? resolve() : reject(error)));
+  }
+
+  const initialize = requests.find((request) => (request.body as { method?: string } | undefined)?.method === "initialize");
+  const initialized = requests.find((request) => (request.body as { method?: string } | undefined)?.method === "notifications/initialized");
+  const toolCall = requests.find((request) => (request.body as { method?: string } | undefined)?.method === "tools/call");
+  const close = requests.find((request) => request.method === "DELETE");
+  assert.equal(initialize?.headers.accept, "application/json, text/event-stream");
+  assert.equal(initialize?.headers["mcp-protocol-version"], undefined);
+  assert.equal(initialized?.headers["mcp-protocol-version"], "2025-06-18");
+  assert.equal(initialized?.headers["mcp-session-id"], "fixture-session");
+  assert.equal(toolCall?.headers["mcp-session-id"], "fixture-session");
+  assert.equal(close?.headers["mcp-session-id"], "fixture-session");
 });
 
 const fixtureServer = String.raw`
