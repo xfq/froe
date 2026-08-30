@@ -43,7 +43,7 @@ export interface RunOptions {
   workspace: string;
   additionalDirectories: string[];
   task?: string;
-  images: PromptImage[];
+  imagePaths: string[];
   config: FroeConfig;
   yes: boolean;
   verbose: boolean;
@@ -83,6 +83,18 @@ export interface ActionResult {
   name: string;
   ok: boolean;
   output: JsonValue;
+}
+
+export type ApprovalScope = "policy" | "sandbox_exception";
+
+export type ApprovalDecision = "deny" | "approve_once" | "approve_for_run";
+
+export interface ApprovalRequest {
+  id: string;
+  action: ActionRequest;
+  reason: string;
+  destructive: boolean;
+  scope: ApprovalScope;
 }
 
 export type ModelEvent =
@@ -125,7 +137,15 @@ export type RunEvent =
   | { type: "model_text"; text: string }
   | { type: "action_requested"; action: ActionRequest }
   | { type: "action_result"; result: ActionResult }
-  | { type: "approval_requested"; action: ActionRequest; reason: string }
+  | {
+    type: "approval_requested";
+    approvalId: string;
+    action: ActionRequest;
+    reason: string;
+    destructive: boolean;
+    scope: ApprovalScope;
+    choices: ApprovalDecision[];
+  }
   | { type: "context_compacted"; previousItems: number; retainedItems: number; thresholdTokens: number | null }
   | { type: "usage"; inputTokens: number; outputTokens: number }
   | { type: "run_finished"; outcome: RunOutcome };

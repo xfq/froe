@@ -11,6 +11,12 @@
   "bin": {
     "froe": "dist/cli.js"
   },
+  "exports": {
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "import": "./dist/core.js"
+    }
+  },
   "files": [
     "dist",
     "README.md",

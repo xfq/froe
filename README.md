@@ -1,6 +1,6 @@
 # froe
 
-froe is an inspectable coding agent for work in a codebase. Here, *inspectable* means a person can reconstruct a run after the fact: which actions it requested, their effects or results, the approval decisions that applied, and why it completed, stopped, or failed. The control flow that governs those decisions is explicit in the code, and the CLI emits structured run events and records. It does not mean retaining source contents or unrestricted model text by default.
+froe is an inspectable coding agent for work in a codebase. Here, *inspectable* means a person can reconstruct a run after the fact: which actions it requested, their effects or results, the approval decisions that applied, and why it completed, stopped, or failed. The control flow that governs those decisions is explicit in the code, and the core emits structured run events and records. It does not mean retaining source contents or unrestricted model text by default.
 
 A froe is a hand tool that splits wood along its grain; this agent borrows that idea for code changes: investigate the local structure, make a precise patch, and leave evidence behind.
 
@@ -166,7 +166,34 @@ Each CLI invocation writes a JSONL record to `$XDG_STATE_HOME/froe/runs` or `~/.
 
 Automatic update checks store only their last-check timestamp in `$XDG_STATE_HOME/froe/update.json`, or `~/.local/state/froe/update.json` by default.
 
-The OpenAI adapter sends `store: false` and retains the current CLI conversation's continuation state in memory. When server-side compaction returns a checkpoint, froe discards the older in-memory continuation and records a safe `context_compacted` event containing only item counts and the configured threshold. The opaque checkpoint is never copied into the run record. Conversations cannot be resumed after the process exits. See [OpenAI's data controls documentation](https://developers.openai.com/api/docs/guides/your-data#default-usage-policies-by-endpoint) for the distinction between response storage and API abuse-monitoring retention.
+The OpenAI adapter sends `store: false` and retains the current session's continuation state in memory. When server-side compaction returns a checkpoint, froe discards the older in-memory continuation and records a safe `context_compacted` event containing only item counts and the configured threshold. The opaque checkpoint is never copied into the run record. Sessions cannot be resumed after the process exits. See [OpenAI's data controls documentation](https://developers.openai.com/api/docs/guides/your-data#default-usage-policies-by-endpoint) for the distinction between response storage and API abuse-monitoring retention.
+
+## Core library
+
+`@xfq/froe/core` is the supported interface for building another presentation adapter. `openFroeSession` loads the same configuration and credentials as the CLI, creates the provider, recorder, approval gate, sandbox, action runtime, project instructions, Tavily adapter, and MCP connections, and returns one session for a fixed Workspace.
+
+```ts
+import { openFroeSession } from "@xfq/froe/core";
+
+const session = await openFroeSession({
+  workspace: "/path/to/project",
+  adapter: {
+    onEvent: ({ event }) => render(event),
+    requestApproval: (prompt, signal) => askUser(prompt, signal),
+  },
+});
+
+try {
+  const outcome = await session.run({ task: "Fix the failing parser tests" });
+  console.log(outcome.status);
+} finally {
+  await session.close();
+}
+```
+
+The adapter receives versioned, ordered event envelopes and may collect only the approval decisions offered by the core. If no approval adapter is present, approval-required actions fail closed. `session.status()` returns serializable Workspace, effective configuration, record path, MCP status, and active-run state. A session accepts only one run at a time, preserves provider continuation across sequential runs, and cancels its active run before closing.
+
+Use `configureFroe` for shared non-run operations such as inspecting connection status, saving OpenAI or Tavily credentials, and adding a user-controlled MCP server. Do not import `dist/run.js`, `dist/action-runtime.js`, or other implementation files; they are intentionally outside the package export map.
 
 ## Development
 

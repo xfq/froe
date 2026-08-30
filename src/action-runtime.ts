@@ -3,7 +3,9 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { randomUUID } from "node:crypto";
 import { CommandSandboxError, type CommandSandbox, type SandboxException, type SandboxedCommandResult } from "./command-sandbox.js";
 import { TavilyWebSearch, TavilyWebSearchError, type WebSearch } from "./tavily-web-search.js";
-import type { ActionName, ActionRequest, ActionResult, FroeConfig, JsonValue, ToolDefinition } from "./types.js";
+import type { ActionName, ActionRequest, ActionResult, ApprovalRequest, FroeConfig, JsonValue, ToolDefinition } from "./types.js";
+
+export type { ApprovalRequest } from "./types.js";
 
 const ignoredDirectories = new Set([".git", "node_modules", "dist", ".froe"]);
 const destructiveExecutables = new Set(["rm", "rmdir", "unlink", "shred", "mkfs", "dd", "sudo", "doas", "su"]);
@@ -88,15 +90,8 @@ export const toolDefinitions: ToolDefinition[] = [
   },
 ];
 
-export interface ApprovalRequest {
-  action: ActionRequest;
-  reason: string;
-  destructive: boolean;
-  scope: "policy" | "sandbox_exception";
-}
-
 export interface ApprovalGate {
-  request(request: ApprovalRequest): Promise<boolean>;
+  request(request: ApprovalRequest, signal?: AbortSignal): Promise<boolean>;
 }
 
 export interface ActionRuntimeHooks {
@@ -177,13 +172,13 @@ export class ActionRuntime {
           return success(request, await this.webSearch(parseWebSearchArgs(request.arguments), signal));
         case "apply_patch": {
           const changes = parsePatchArgs(request.arguments);
-          await this.#requireApprovalIfNeeded(request, changes.some((change) => change.newText === null), changes.some((change) => change.newText === null) ? "Deleting a workspace file requires approval." : undefined);
+          await this.#requireApprovalIfNeeded(request, changes.some((change) => change.newText === null), changes.some((change) => change.newText === null) ? "Deleting a workspace file requires approval." : undefined, true, "policy", signal);
           return success(request, await this.applyPatch(changes));
         }
         case "run_command": {
           const command = parseCommandArgs(request.arguments, this.#config.limits.commandTimeoutMs);
           const risk = commandRisk(command);
-          await this.#requireApprovalIfNeeded(request, risk.requiresApproval, risk.reason, risk.destructive);
+          await this.#requireApprovalIfNeeded(request, risk.requiresApproval, risk.reason, risk.destructive, "policy", signal);
           return success(request, await this.runCommand(command, request, signal));
         }
         case "finish":
@@ -203,11 +198,13 @@ export class ActionRuntime {
     reason?: string,
     destructive = false,
     scope: ApprovalRequest["scope"] = "policy",
+    signal?: AbortSignal,
   ): Promise<void> {
     if (!required) return;
-    const approvalRequest: ApprovalRequest = { action: request, reason: reason ?? "This action requires approval.", destructive, scope };
+    const approvalRequest: ApprovalRequest = { id: randomUUID(), action: request, reason: reason ?? "This action requires approval.", destructive, scope };
     await this.#hooks.onApprovalRequested?.(approvalRequest);
-    if (!await this.#approval.request(approvalRequest)) {
+    if (signal?.aborted) throw new ActionError("approval_cancelled", "Approval was cancelled with the run.");
+    if (!await this.#approval.request(approvalRequest, signal)) {
       throw new ActionError("approval_denied", `Approval was denied: ${approvalRequest.reason}`);
     }
   }
@@ -456,7 +453,7 @@ export class ActionRuntime {
       const additions = newSandboxExceptions(exceptions, result.denial.exceptions);
       if (additions.length === 0) throw new ActionError("command_sandbox_blocked", `${result.denial.reason} Froe could not construct a narrow retry exception.`);
       const retryReason = `${result.denial.reason} Approve ${describeSandboxExceptions(additions)} and rerun the command once? The previous attempt may already have changed files inside the workspace.`;
-      await this.#requireApprovalIfNeeded(request, true, retryReason, result.denial.destructive, "sandbox_exception");
+      await this.#requireApprovalIfNeeded(request, true, retryReason, result.denial.destructive, "sandbox_exception", signal);
       exceptions.push(...additions);
       result = await this.#commandSandbox.run(invocation, exceptions);
     }

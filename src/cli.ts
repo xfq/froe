@@ -6,22 +6,16 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stderr as output, stdout } from "node:process";
 import type { ReadStream, WriteStream } from "node:tty";
 import { fileURLToPath } from "node:url";
-import { ActionRuntime, type ApprovalGate, type ApprovalRequest } from "./action-runtime.js";
 import { formatActionDetails, formatApprovalPrompt, redactSensitiveText } from "./action-summary.js";
-import { createCommandSandbox } from "./command-sandbox.js";
-import { addMcpServer, loadConfig } from "./config.js";
+import { loadConfig } from "./config.js";
+import { configureFroe } from "./core.js";
 import { runConversation } from "./conversation.js";
-import { DEFAULT_OPENAI_BASE_URL, FileCredentialStore, resolveOpenAICredentials, resolveTavilyApiKey, saveTavilyApiKey } from "./credentials.js";
-import { discoverProjectInstructions } from "./instructions.js";
-import { OpenAIProvider } from "./openai-provider.js";
-import { loadPromptImages } from "./prompt-images.js";
-import { McpManager } from "./mcp.js";
-import { RunRecorder } from "./recorder.js";
-import { runTask } from "./run.js";
+import { DEFAULT_OPENAI_BASE_URL } from "./credentials.js";
+import { openFroeSessionWithConfig } from "./session-composition.js";
+import type { FroeApprovalPrompt, FroeSessionEvent, FroeSessionStatus } from "./session.js";
 import { terminalMessages } from "./terminal-conversation.js";
-import type { EventSink, McpServerConfig, ReasoningEffort, RunEvent, RunOptions } from "./types.js";
+import type { ApprovalDecision, McpServerConfig, ReasoningEffort, RunEvent, RunOptions } from "./types.js";
 import { maybeAutoUpdate } from "./updater.js";
-import { TavilyWebSearch } from "./tavily-web-search.js";
 
 const reasoningValues = new Set<ReasoningEffort>(["none", "low", "medium", "high", "xhigh", "max"]);
 const packageName = "@xfq/froe";
@@ -41,7 +35,7 @@ type CliOptions = ConfigureTavilyOptions | RunCliOptions;
 async function main(): Promise<void> {
   const mcpCommand = parseMcpCommand(process.argv.slice(2));
   if (mcpCommand !== undefined) {
-    await addMcpServer(mcpCommand.name, mcpCommand.server);
+    await configureFroe({ type: "add_mcp_server", name: mcpCommand.name, server: mcpCommand.server });
     output.write(`MCP server ${mcpCommand.name} added.\n`);
     return;
   }
@@ -65,49 +59,32 @@ async function main(): Promise<void> {
     output.write(`froe: automatic update ${update.phase} failed; continuing with ${packageVersion}.\n`);
   }
   const conversationMode = options.task === undefined;
-  const credentialStore = new FileCredentialStore();
-  const credentials = await resolveOpenAICredentials({
-    ...(process.env.OPENAI_API_KEY === undefined ? {} : { environmentApiKey: process.env.OPENAI_API_KEY }),
-    ...(options.config.baseURL !== undefined
-      ? { configuredBaseURL: options.config.baseURL }
-      : process.env.OPENAI_BASE_URL === undefined
-        ? {}
-        : { configuredBaseURL: process.env.OPENAI_BASE_URL }),
-    interactive: input.isTTY === true && output.isTTY === true,
-    promptApiKey: () => promptForApiKey(input, output),
-    promptBaseURL: (defaultValue) => promptForBaseURL(input, output, defaultValue),
-    store: credentialStore,
-    onSaved: () => {
-      output.write("OpenAI connection saved. Future runs will use it automatically.\n");
+  let render: (event: RunEvent) => void = () => undefined;
+  const session = await openFroeSessionWithConfig({
+    workspace: options.workspace,
+    additionalDirectories: options.additionalDirectories,
+    config: options.config,
+    noLog: options.noLog,
+    approvalMode: options.yes ? "auto_non_destructive" : "prompt",
+    ...(input.isTTY === true && output.isTTY === true
+      ? {
+        connectionPrompts: {
+          promptApiKey: () => promptForApiKey(input, output),
+          promptBaseURL: (defaultValue: string) => promptForBaseURL(input, output, defaultValue),
+          onSaved: () => {
+            output.write("OpenAI connection saved. Future runs will use it automatically.\n");
+          },
+        },
+      }
+      : {}),
+    adapter: {
+      onEvent: (envelope: FroeSessionEvent) => render(envelope.event),
+      requestApproval: requestTerminalApproval,
     },
   });
-  const tavilyApiKey = await resolveTavilyApiKey({
-    ...(process.env.TAVILY_API_KEY === undefined ? {} : { environmentApiKey: process.env.TAVILY_API_KEY }),
-    store: credentialStore,
-  });
-  const recorder = await RunRecorder.create(options.config.logging, options.noLog);
-  const render = createRenderer(options.verbose, recorder.path, conversationMode);
-  const sink: EventSink = async (event) => {
-    await recorder.record(event);
-    render(event);
-  };
-  const approval = new TerminalApproval(options.yes);
-  const commandSandbox = await createCommandSandbox(options.workspace, options.additionalDirectories);
-  const runtime = await ActionRuntime.create(
-    options.workspace,
-    options.config,
-    approval,
-    commandSandbox,
-    {
-      onApprovalRequested: async (request) => sink({ type: "approval_requested", action: request.action, reason: request.reason }),
-    },
-    options.additionalDirectories,
-    new TavilyWebSearch(tavilyApiKey === undefined ? {} : { apiKey: tavilyApiKey }),
-  );
-  const instructions = await discoverProjectInstructions(runtime.workspace);
-  const mcp = await McpManager.connect(options.config.mcpServers);
-  for (const failure of mcp.failures) output.write(`froe: MCP server ${failure.name} is unavailable: ${failure.message}\n`);
-  const provider = new OpenAIProvider(options.config, credentials);
+  const status = session.status();
+  render = createRenderer(options.verbose, status.recordPath, conversationMode);
+  for (const failure of status.mcpFailures) output.write(`froe: MCP server ${failure.name} is unavailable: ${failure.message}\n`);
   const controller = new AbortController();
   let interrupted = false;
   const onInterrupt = (): void => {
@@ -119,43 +96,29 @@ async function main(): Promise<void> {
   process.on("SIGINT", onInterrupt);
   try {
     if (options.task === undefined) {
-      printConversationBanner(options.config.model, runtime.workspace, recorder.path);
+      printConversationBanner(status);
       await runConversation({
+        session,
         messages: terminalMessages(input, output, controller.signal),
-        images: options.images,
-        model: provider,
-        runtime,
-        mcp,
-        instructions,
-        modelName: options.config.model,
-        maxTurns: options.config.maxTurns,
+        imagePaths: options.imagePaths,
         signal: controller.signal,
-        emit: sink,
-        selectModel: (model) => {
-          provider.selectModel(model);
+        onModelSelected: (model) => {
           output.write(`froe conversation · ${model}\n`);
         },
-        showMcpServers: () => printMcpServers(mcp),
+        showMcpServers: printMcpServers,
       });
       process.exitCode = controller.signal.aborted ? 130 : 0;
     } else {
-      const outcome = await runTask({
+      const outcome = await session.run({
         task: options.task,
-        images: options.images,
-        model: provider,
-        runtime,
-        mcp,
-        instructions,
-        modelName: options.config.model,
-        maxTurns: options.config.maxTurns,
+        imagePaths: options.imagePaths,
         signal: controller.signal,
-        emit: sink,
       });
       process.exitCode = outcome.status === "completed" ? 0 : outcome.status === "cancelled" ? 130 : 1;
     }
   } finally {
     process.off("SIGINT", onInterrupt);
-    await mcp.close();
+    await session.close();
   }
 }
 
@@ -225,7 +188,7 @@ async function parseOptions(): Promise<CliOptions> {
   const workspace = resolve(stringOption(parsed.values.workspace) ?? process.cwd());
   const additionalDirectories = stringOptions(parsed.values["add-dir"]).map((path) => resolve(path));
   const reasoning = optionalReasoning(stringOption(parsed.values.reasoning));
-  const images = await loadPromptImages(stringOptions(parsed.values.image));
+  const imagePaths = stringOptions(parsed.values.image).map((path) => resolve(path));
   const maxTurns = optionalPositiveInteger(stringOption(parsed.values["max-turns"]), "--max-turns");
   const explicitConfigPath = stringOption(parsed.values.config);
   const config = await loadConfig({
@@ -243,7 +206,7 @@ async function parseOptions(): Promise<CliOptions> {
     workspace,
     additionalDirectories,
     ...(task === undefined ? {} : { task }),
-    images,
+    imagePaths,
     config,
     yes: Boolean(parsed.values.yes),
     verbose: Boolean(parsed.values.verbose),
@@ -274,7 +237,7 @@ async function configureTavily(): Promise<void> {
     throw new UsageError("--configure-tavily requires an interactive terminal.");
   }
   const apiKey = await promptForHiddenText(input, output, "Tavily API key (input hidden): ", "Tavily configuration cancelled.");
-  await saveTavilyApiKey(apiKey, new FileCredentialStore());
+  await configureFroe({ type: "save_tavily_api_key", apiKey });
   output.write("Tavily API key saved. Future runs will use it automatically.\n");
 }
 
@@ -341,32 +304,22 @@ async function promptForBaseURL(
   }
 }
 
-class TerminalApproval implements ApprovalGate {
-  readonly #yes: boolean;
-  readonly #alwaysApproved = new Set<string>();
-
-  constructor(yes: boolean) {
-    this.#yes = yes;
-  }
-
-  async request(request: ApprovalRequest): Promise<boolean> {
-    const category = request.action.name;
-    if (request.scope === "policy" && this.#alwaysApproved.has(category)) return true;
-    if (request.scope === "policy" && this.#yes && !request.destructive) return true;
-    if (!process.stdin.isTTY || !process.stderr.isTTY) return false;
-    const readline = createInterface({ input, output });
-    try {
-      const choices = request.scope === "sandbox_exception" || request.destructive ? "[y]es/[n]o" : "[y]es/[n]o/[a]ll this run";
-      const prompt = formatApprovalPrompt(request.action, request.reason, choices);
-      const answer = (await readline.question(prompt)).trim().toLowerCase();
-      if (answer === "a" && request.scope === "policy" && !request.destructive) {
-        this.#alwaysApproved.add(category);
-        return true;
-      }
-      return answer === "y" || answer === "yes";
-    } finally {
-      readline.close();
-    }
+async function requestTerminalApproval(prompt: FroeApprovalPrompt, signal?: AbortSignal): Promise<ApprovalDecision> {
+  if (!process.stdin.isTTY || !process.stderr.isTTY) return "deny";
+  const readline = createInterface({ input, output });
+  try {
+    const choices = prompt.choices.includes("approve_for_run") ? "[y]es/[n]o/[a]ll this run" : "[y]es/[n]o";
+    const message = formatApprovalPrompt(prompt.action, prompt.reason, choices);
+    const answer = (signal === undefined
+      ? await readline.question(message)
+      : await readline.question(message, { signal })).trim().toLowerCase();
+    if (answer === "a" && prompt.choices.includes("approve_for_run")) return "approve_for_run";
+    return answer === "y" || answer === "yes" ? "approve_once" : "deny";
+  } catch (error) {
+    if (signal?.aborted) return "deny";
+    throw error;
+  } finally {
+    readline.close();
   }
 }
 
@@ -408,19 +361,19 @@ function createRenderer(verbose: boolean, recordPath: string | undefined, conver
   };
 }
 
-function printConversationBanner(model: string, workspace: string, recordPath: string | undefined): void {
-  output.write(`froe conversation · ${model}\nworkspace: ${workspace}\n`);
-  if (recordPath !== undefined) output.write(`record: ${recordPath}\n`);
+function printConversationBanner(status: FroeSessionStatus): void {
+  output.write(`froe conversation · ${status.config.model}\nworkspace: ${status.workspace}\n`);
+  if (status.recordPath !== undefined) output.write(`record: ${status.recordPath}\n`);
   output.write("Send a follow-up after each run, type /mcp to list active servers, or type /exit to leave.\n");
 }
 
-function printMcpServers(mcp: McpManager): void {
-  if (mcp.activeServers.length === 0) {
+function printMcpServers(status: FroeSessionStatus): void {
+  if (status.activeMcpServers.length === 0) {
     output.write("No active MCP servers.\n");
     return;
   }
   output.write("Active MCP servers:\n");
-  for (const server of mcp.activeServers) output.write(`- ${server.name} (${server.toolCount} tools)\n`);
+  for (const server of status.activeMcpServers) output.write(`- ${server.name} (${server.toolCount} tools)\n`);
 }
 
 function writeActionDetails(action: { name: string; arguments: unknown }): void {

@@ -1,4 +1,4 @@
-import { runTask, type RunRequest } from "./run.js";
+import type { FroeSession, FroeSessionStatus } from "./session.js";
 import type { RunOutcome } from "./types.js";
 
 export type ConversationMessage =
@@ -6,41 +6,38 @@ export type ConversationMessage =
   | { type: "model"; model: string }
   | { type: "mcp" };
 
-export interface ConversationRequest extends Omit<RunRequest, "task"> {
+export interface ConversationRequest {
+  session: FroeSession;
   messages: AsyncIterable<ConversationMessage>;
-  selectModel(model: string): void | Promise<void>;
-  showMcpServers?(): void | Promise<void>;
+  imagePaths?: readonly string[];
+  signal?: AbortSignal;
+  onModelSelected?(model: string): void | Promise<void>;
+  showMcpServers?(status: FroeSessionStatus): void | Promise<void>;
 }
 
 export async function runConversation(request: ConversationRequest): Promise<RunOutcome[]> {
   const outcomes: RunOutcome[] = [];
-  let images = request.images;
-  let modelName = request.modelName;
+  let imagePaths = request.imagePaths;
+  let model = request.session.status().config.model;
 
   for await (const message of request.messages) {
     if (message.type === "model") {
-      await request.selectModel(message.model);
-      modelName = message.model;
+      model = message.model;
+      await request.onModelSelected?.(model);
       continue;
     }
     if (message.type === "mcp") {
-      await request.showMcpServers?.();
+      await request.showMcpServers?.(request.session.status());
       continue;
     }
 
-    const outcome = await runTask({
+    const outcome = await request.session.run({
       task: message.text,
-      ...(images === undefined || images.length === 0 ? {} : { images }),
-      model: request.model,
-      runtime: request.runtime,
-      ...(request.mcp === undefined ? {} : { mcp: request.mcp }),
-      instructions: request.instructions,
-      modelName,
-      maxTurns: request.maxTurns,
+      ...(imagePaths === undefined || imagePaths.length === 0 ? {} : { imagePaths }),
+      model,
       ...(request.signal === undefined ? {} : { signal: request.signal }),
-      ...(request.emit === undefined ? {} : { emit: request.emit }),
     });
-    images = undefined;
+    imagePaths = undefined;
     outcomes.push(outcome);
     if (outcome.status === "cancelled") break;
   }

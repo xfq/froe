@@ -6,13 +6,13 @@ For consequential decisions and their trade-offs, see the [architecture decision
 
 ## Purpose and boundaries
 
-Froe is a single-process TypeScript command-line coding agent. A CLI invocation either creates one bounded **run** or hosts an interactive conversation whose messages create sequential bounded runs against one user-authorized **workspace**. During a run, a model can inspect files, apply precise text changes, execute validation commands, and report a verified outcome.
+Froe is a single-process TypeScript coding agent with an embeddable core and a command-line adapter. A session owns one user-authorized **workspace** and hosts sequential bounded **runs** while preserving provider continuation, action authority, MCP connections, and recording state. A CLI invocation either creates one run or uses terminal input to submit multiple runs through the same session. During a run, a model can inspect files, apply precise text changes, execute validation commands, and report a verified outcome.
 
 Inspectability is a product property: after a run, a person must be able to determine the action sequence, safe summaries of its effects or results, applicable approval decisions, and the reason for its final outcome. Metadata recording deliberately excludes source contents, patch bodies, tool output, and model text.
 
 The current implementation has a small boundary:
 
-- one task and one model provider per run, with one provider reused across the runs in an interactive conversation;
+- one task per run, with one model provider reused across the sequential runs in a session;
 - one production provider, the OpenAI Responses API, behind a provider-neutral interface;
 - local actions scoped to one Workspace and explicitly declared additional directories, plus Tavily web search;
 - user-configured local stdio and remote Streamable HTTP MCP servers;
@@ -22,9 +22,15 @@ The current implementation has a small boundary:
 
 ## System overview
 
-The CLI is the composition root. Before creating credentials, run records, or an action runtime, it lets the updater check npm-managed global installations for a newer stable release. It reads user-selected PNG, JPEG, WEBP, or non-animated GIF attachments from repeatable `--image` options and accepts repeatable `--add-dir` paths that extend the run's explicit filesystem authority alongside its primary Workspace. It verifies the current Responses API request limits before a run starts, and passes attachments only to the first prompt (or first conversation message). The conversation module sequences user messages into bounded runs while preserving one model provider and action runtime. Its terminal adapter owns line editing and Tab completion for `/init`, `/mcp`, `/model`, and `/exit`; only `/init` starts a normal run. The MCP manager starts user-configured stdio servers or connects to remote Streamable HTTP endpoints, discovers their tools, names them `mcp__<server>__<tool>`, and routes model calls back to their owner. The three deepest modules remain the run loop, which owns model/action orchestration and completion semantics; the action runtime, which owns authorized-directory effects and approval policy; and the command sandbox, which owns child-process containment and lifecycle. The Tavily adapter owns its HTTP boundary and response normalization. Provider-specific translation, persistence, configuration, credentials, automatic updates, and project-instruction discovery sit behind smaller seams.
+The session composition module is the product composition root. It resolves credentials, creates the run recorder, approval gate, command sandbox, action runtime, project instructions, provider, Tavily adapter, and MCP manager, then returns the public `FroeSession` interface. The published `@xfq/froe/core` subpath loads configuration before entering that composition. The CLI resolves the same configuration early only because npm-managed update checks must happen before session startup; it then becomes a terminal adapter over `FroeSession`.
+
+The CLI reads user-selected PNG, JPEG, WEBP, or non-animated GIF paths from repeatable `--image` options and accepts repeatable `--add-dir` paths that extend the session's explicit filesystem authority alongside its primary Workspace. The shared session implementation loads and validates attachments. Its terminal conversation adapter passes command-line attachments only to the first submitted run, owns line editing and Tab completion for `/init`, `/mcp`, `/model`, and `/exit`, and maps those controls to session operations. The MCP manager starts user-configured stdio servers or connects to remote Streamable HTTP endpoints, discovers their tools, names them `mcp__<server>__<tool>`, and routes model calls back to their owner. The four deepest modules are the session, which owns cross-run composition and lifecycle; the run loop, which owns model/action orchestration and completion semantics; the action runtime, which owns authorized-directory effects and approval policy; and the command sandbox, which owns child-process containment and lifecycle. The Tavily adapter owns its HTTP boundary and response normalization. Provider-specific translation, persistence, configuration, credentials, automatic updates, and project-instruction discovery sit behind smaller seams.
 
 The OpenAI adapter requests server-side context compaction at a user-selected threshold. When the provider returns a compaction item, the adapter replaces all earlier continuation input with the checkpoint and subsequent output items, then emits a provider-neutral audit event with counts and the configured threshold.
+
+### Public core interface
+
+The package exports `@xfq/froe/core` as the only supported application interface. `openFroeSession` hides configuration, credentials, provider, runtime, sandbox, MCP, instruction, and recorder composition. The returned session has three operations: inspect serializable status, run one task, and close. A session fixes its Workspace and additional authorized directories for its lifetime, rejects concurrent runs rather than queueing them, and closes its MCP connections after cancelling any active run. `configureFroe` owns the non-run configuration operations shared by terminal and graphical adapters.
 
 ## Action runtime
 
@@ -80,14 +86,15 @@ The OpenAI adapter sends `store: false` and requests server-side compaction at 2
 
 ### Prompt attachments
 
-The OpenAI provider encodes CLI image attachments as base64 `input_image` content alongside the prompt text. Attachment bytes and paths remain only in the in-memory model context. They are absent from run events and their local records.
+The session validates image paths before a run, and the OpenAI provider encodes accepted attachments as base64 `input_image` content alongside the prompt text. Attachments belong only to the run that supplied them and enter only its first model turn. Attachment bytes and paths remain only in the in-memory model context. They are absent from run events and their local records.
 
 ## Testing strategy
 
 The automated suite tests behavior at the deepest public seams:
 
 - [`test/run.test.ts`](./test/run.test.ts) drives complete runs with `ScriptedModel`, including patching, approval denial, `/init`, and completion evidence;
-- [`test/conversation.test.ts`](./test/conversation.test.ts) sends multiple user messages through sequential runs and verifies follow-up context and session-level model changes;
+- [`test/session.test.ts`](./test/session.test.ts) exercises the public session behavior through sequential runs, ordered event envelopes, structured approval, and concurrency rejection;
+- [`test/conversation.test.ts`](./test/conversation.test.ts) verifies that terminal conversation controls adapt to the session interface without rebuilding run behavior;
 - [`test/cli.test.ts`](./test/cli.test.ts) verifies slash-command completion, model-command parsing, follow-up terminal input, release of the input stream before a run can request approval, and Tavily setup help;
 - [`test/mcp.test.ts`](./test/mcp.test.ts) starts local stdio and HTTP fixtures to verify MCP initialization, session handling, tool discovery, namespaced exposure, and tool-result continuation without a network dependency;
 - [`test/action-runtime.test.ts`](./test/action-runtime.test.ts) exercises patch preflight, workspace confinement, symlink rejection, local search, Tavily requests, command timeouts, environment filtering, and workspace configuration restrictions;
