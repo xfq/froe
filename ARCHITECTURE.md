@@ -30,7 +30,7 @@ The OpenAI adapter requests server-side context compaction at a user-selected th
 
 ### Public core interface
 
-The package exports `@xfq/froe/core` as the only supported application interface. `openFroeSession` hides configuration, credentials, provider, runtime, sandbox, MCP, instruction, and recorder composition. The returned session has three operations: inspect serializable status, run one task, and close. A session fixes its Workspace and additional authorized directories for its lifetime, rejects concurrent runs rather than queueing them, and closes its MCP connections after cancelling any active run. `configureFroe` owns the non-run configuration operations shared by terminal and graphical adapters.
+The package exports `@xfq/froe/core` as the only supported application interface. `openFroeSession` hides configuration, credentials, provider, runtime, sandbox, MCP, instruction, and recorder composition. The returned session has three operations: inspect serializable status, run one task, and close. A session fixes its Workspace and additional authorized directories for its lifetime, rejects concurrent runs rather than queueing them, and closes its MCP connections after cancelling any active run. `configureFroe` owns the non-run configuration operations shared by terminal and graphical adapters. Presentation adapters reuse `summarizeAction` and `redactSensitiveText` from the same interface so action summaries omit source and search contents and apply the same credential-pattern redaction as the terminal adapter.
 
 ## Action runtime
 

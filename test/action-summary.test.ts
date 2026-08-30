@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatActionDetails, formatApprovalPrompt } from "../src/action-summary.js";
+import { formatApprovalPrompt } from "../src/action-summary.js";
+import { redactSensitiveText, summarizeAction } from "../src/core.js";
 
 test("command summaries show a redacted argv and cwd", () => {
-  assert.deepEqual(formatActionDetails({
+  assert.deepEqual(summarizeAction({
     name: "run_command",
     arguments: {
       executable: "git",
@@ -17,7 +18,7 @@ test("command summaries show a redacted argv and cwd", () => {
 });
 
 test("patch summaries list each affected file and change type without source text", () => {
-  assert.deepEqual(formatActionDetails({
+  assert.deepEqual(summarizeAction({
     name: "apply_patch",
     arguments: {
       changes: [
@@ -34,10 +35,17 @@ test("patch summaries list each affected file and change type without source tex
 });
 
 test("read-only action summaries retain their safe target without exposing search text", () => {
-  assert.deepEqual(formatActionDetails({
+  assert.deepEqual(summarizeAction({
     name: "search",
     arguments: { query: "private source text" },
   }), ["path: \".\""]);
+});
+
+test("the public core redactor removes credential-shaped values from presentation text", () => {
+  assert.equal(
+    redactSensitiveText("Authorization: Bearer secret-token; password=hunter2"),
+    "Authorization: Bearer <redacted>; password=<redacted>",
+  );
 });
 
 test("approval prompts repeat the redacted action summary immediately before the decision", () => {

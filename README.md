@@ -193,6 +193,8 @@ try {
 
 The adapter receives versioned, ordered event envelopes and may collect only the approval decisions offered by the core. If no approval adapter is present, approval-required actions fail closed. `session.status()` returns serializable Workspace, effective configuration, record path, MCP status, and active-run state. A session accepts only one run at a time, preserves provider continuation across sequential runs, and cancels its active run before closing.
 
+Graphical and other presentation adapters should use the exported `summarizeAction` and `redactSensitiveText` helpers when displaying action details or approval reasons. The summaries omit source and search contents and redact common credential-shaped values. Their output is plain text, not sanitized HTML.
+
 Use `configureFroe` for shared non-run operations such as inspecting connection status, saving OpenAI or Tavily credentials, and adding a user-controlled MCP server. Do not import `dist/run.js`, `dist/action-runtime.js`, or other implementation files; they are intentionally outside the package export map.
 
 ## Development

@@ -13,6 +13,10 @@ import type { ApprovalMode, FroeSession, FroeSessionAdapter } from "./session.js
 import type { McpServerConfig } from "./types.js";
 
 export {
+  formatActionDetails as summarizeAction,
+  redactSensitiveText,
+} from "./action-summary.js";
+export {
   FROE_CORE_INTERFACE_VERSION,
   FroeSessionError,
 } from "./session.js";

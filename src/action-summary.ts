@@ -2,10 +2,14 @@ import type { ActionRequest } from "./types.js";
 
 const sensitiveFlag = /^(?:--?)[\w-]*(?:api[-_]?key|access[-_]?token|token|secret|password|passwd|authorization|credential|cookie|session)[\w-]*$/i;
 const sensitiveAssignment = /((?:--?)[\w-]*(?:api[-_]?key|access[-_]?token|token|secret|password|passwd|authorization|credential|cookie|session)[\w-]*=)([^\s]+)/gi;
-const sensitiveNamedValue = /(\b[A-Za-z_][\w-]*(?:api[-_]?key|access[-_]?token|token|secret|password|passwd|authorization|credential|cookie|session)[\w-]*\s*[:=]\s*)([^\s,;]+)/gi;
-const authorizationValue = /(authorization\s*:\s*(?:bearer|basic|token)\s+)([^\s,;]+)/gi;
+const sensitiveNamedValue = /(\b(?:[A-Za-z_][\w-]*)?(?:api[-_]?key|access[-_]?token|token|secret|password|passwd|credential|cookie|session)[\w-]*\s*[:=]\s*)([^\s,;]+)/gi;
+const authorizationValue = /(authorization\s*[:=]\s*(?:(?:bearer|basic|token)\s+)?)([^\s,;]+)/gi;
 const urlCredentials = /\b([a-z][a-z0-9+.-]*:\/\/[^:/\s]+):([^@/\s]+)@/gi;
 
+/**
+ * Summarizes an action for plain-text presentation without including source or search contents.
+ * Credential-shaped values are redacted, but callers must not treat the result as HTML.
+ */
 export function formatActionDetails(action: Pick<ActionRequest, "name" | "arguments">): string[] {
   const arguments_ = record(action.arguments);
   if (arguments_ === undefined) return [];
@@ -29,6 +33,7 @@ export function formatActionDetails(action: Pick<ActionRequest, "name" | "argume
   }
 }
 
+/** Redacts common credential-shaped values from plain text; this is not a general HTML sanitizer. */
 export function redactSensitiveText(value: string): string {
   return value
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")

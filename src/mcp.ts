@@ -159,7 +159,7 @@ class StdioMcpClient implements McpConnection {
       await client.request("initialize", {
         protocolVersion,
         capabilities: {},
-        clientInfo: { name: "froe", version: "0.2.0" },
+        clientInfo: { name: "froe", version: "0.2.1" },
       });
       client.notify("notifications/initialized");
       return client;
@@ -324,7 +324,7 @@ class RemoteMcpClient implements McpConnection {
       await client.request("initialize", {
         protocolVersion,
         capabilities: {},
-        clientInfo: { name: "froe", version: "0.2.0" },
+        clientInfo: { name: "froe", version: "0.2.1" },
       });
       client.#initialized = true;
       await client.notify("notifications/initialized");
