@@ -3,7 +3,12 @@ import { access, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { MacOSSeatbeltCommandSandbox, type CommandInvocation } from "../src/command-sandbox.js";
+import {
+  MacOSSeatbeltCommandSandbox,
+  waitForViolationEvents,
+  type CommandInvocation,
+  type SandboxViolation,
+} from "../src/command-sandbox.js";
 
 function invocation(executable: string, args: string[], cwd: string): CommandInvocation {
   return {
@@ -15,6 +20,42 @@ function invocation(executable: string, args: string[], cwd: string): CommandInv
     maxOutputBytes: 16 * 1024,
   };
 }
+
+test("violation monitoring waits for an expected delayed event", async () => {
+  let violations: SandboxViolation[] = [];
+  let releaseInitialFlush: (() => void) | undefined;
+  let publishViolation: (() => void) | undefined;
+  let delayCalls = 0;
+  let settled = false;
+  const initialFlush = new Promise<void>((resolve) => {
+    releaseInitialFlush = resolve;
+  });
+  const violationPublished = new Promise<void>((resolve) => {
+    publishViolation = resolve;
+  });
+  const waiting = waitForViolationEvents(
+    true,
+    () => violations,
+    violationPublished,
+    async () => {
+      delayCalls += 1;
+      if (delayCalls === 1) await initialFlush;
+      else await new Promise<void>(() => undefined);
+    },
+  );
+  void waiting.then(() => {
+    settled = true;
+  });
+
+  releaseInitialFlush?.();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(settled, false, "monitor stopped after the initial flush and lost the delayed denial");
+
+  violations = [{ operation: "file-read-data", target: "/tmp/outside.txt" }];
+  publishViolation?.();
+  await waiting;
+  assert.deepEqual(violations, [{ operation: "file-read-data", target: "/tmp/outside.txt" }]);
+});
 
 test("macOS Seatbelt allows workspace and temporary writes and retries other writes with an exact exception", {
   skip: process.platform !== "darwin" ? "Seatbelt is available only on macOS" : false,

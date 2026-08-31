@@ -9,6 +9,7 @@ const logExecutable = "/usr/bin/log";
 const monitorReadyText = "Filtering the log data";
 const monitorStartupTimeoutMs = 2_000;
 const violationFlushMs = 150;
+const expectedViolationTimeoutMs = 1_000;
 const diagnosticBytes = 16 * 1024;
 const systemReadRoots = ["/System", "/usr", "/bin", "/sbin", "/dev", "/opt/homebrew", "/opt/local", "/private/var/db/timezone"];
 const systemMetadataRoots = ["/etc", "/private", "/private/etc", "/private/etc/ssl", "/var"];
@@ -113,7 +114,7 @@ export class MacOSSeatbeltCommandSandbox implements CommandSandbox {
       throw error;
     }
     // The monitor stays alive until the kernel has published any denial generated during process exit.
-    const violations = await monitor.finish();
+    const violations = await monitor.finish(result.exitCode !== 0);
     if (result.exitCode !== 0 && result.diagnostics.includes("sandbox-exec: sandbox_apply:")) {
       throw new CommandSandboxError("command_sandbox_failed", result.diagnostics.trim());
     }
@@ -154,7 +155,7 @@ interface CapturedProcessResult {
 }
 
 interface ViolationMonitor {
-  finish(): Promise<SandboxViolation[]>;
+  finish(expectViolation?: boolean): Promise<SandboxViolation[]>;
 }
 
 async function startViolationMonitor(marker: string): Promise<ViolationMonitor> {
@@ -170,9 +171,13 @@ async function startViolationMonitor(marker: string): Promise<ViolationMonitor> 
   let monitorFailure: CommandSandboxError | undefined;
   let resolveReady: (() => void) | undefined;
   let rejectReady: ((error: Error) => void) | undefined;
+  let resolveViolation: (() => void) | undefined;
   const readyPromise = new Promise<void>((resolve, reject) => {
     resolveReady = resolve;
     rejectReady = reject;
+  });
+  const violationPromise = new Promise<void>((resolve) => {
+    resolveViolation = resolve;
   });
   const closePromise = new Promise<void>((resolve) => {
     monitor.once("close", () => resolve());
@@ -183,6 +188,7 @@ async function startViolationMonitor(marker: string): Promise<ViolationMonitor> 
       ready = true;
       resolveReady?.();
     }
+    if (parseViolations(text, marker).length > 0) resolveViolation?.();
   };
   monitor.stdout.on("data", append);
   monitor.stderr.on("data", append);
@@ -214,10 +220,10 @@ async function startViolationMonitor(marker: string): Promise<ViolationMonitor> 
   }
 
   return {
-    async finish(): Promise<SandboxViolation[]> {
+    async finish(expectViolation = false): Promise<SandboxViolation[]> {
       if (finished) return parseViolations(text, marker);
       finished = true;
-      await new Promise((resolve) => setTimeout(resolve, violationFlushMs));
+      await waitForViolationEvents(expectViolation, () => parseViolations(text, marker), violationPromise);
       stopping = true;
       if (monitor.exitCode === null && monitor.signalCode === null) monitor.kill("SIGTERM");
       await closePromise;
@@ -225,6 +231,17 @@ async function startViolationMonitor(marker: string): Promise<ViolationMonitor> 
       return parseViolations(text, marker);
     },
   };
+}
+
+export async function waitForViolationEvents(
+  expectViolation: boolean,
+  currentViolations: () => SandboxViolation[],
+  violationPromise: Promise<void>,
+  delay: (milliseconds: number) => Promise<void> = async (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+): Promise<void> {
+  await delay(violationFlushMs);
+  if (!expectViolation || currentViolations().length > 0) return;
+  await Promise.race([violationPromise, delay(expectedViolationTimeoutMs)]);
 }
 
 function captureProcess(command: CommandInvocation): Promise<CapturedProcessResult> {

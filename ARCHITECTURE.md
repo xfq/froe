@@ -99,7 +99,7 @@ The automated suite tests behavior at the deepest public seams:
 - [`test/mcp.test.ts`](./test/mcp.test.ts) starts local stdio and HTTP fixtures to verify MCP initialization, session handling, tool discovery, namespaced exposure, and tool-result continuation without a network dependency;
 - [`test/action-runtime.test.ts`](./test/action-runtime.test.ts) exercises patch preflight, workspace confinement, symlink rejection, local search, Tavily requests, command timeouts, environment filtering, and workspace configuration restrictions;
 - [`test/tavily-web-search.test.ts`](./test/tavily-web-search.test.ts) verifies Tavily request construction, source normalization, missing credentials, and safe HTTP-failure handling without a live API call;
-- [`test/command-sandbox.test.ts`](./test/command-sandbox.test.ts) exercises the real macOS Seatbelt adapter;
+- [`test/command-sandbox.test.ts`](./test/command-sandbox.test.ts) exercises the real macOS Seatbelt adapter and deterministically simulates delayed unified-log publication;
 - [`test/openai-provider.test.ts`](./test/openai-provider.test.ts) uses a local fake HTTP server to verify Responses API translation, configurable server-side compaction, and bounded client-side continuation without a real API call;
 - [`test/recorder.test.ts`](./test/recorder.test.ts) verifies append-only recording of provider-neutral context-compaction metadata;
 - [`test/credentials.test.ts`](./test/credentials.test.ts) verifies credential precedence, prompting, migration, validation, and file permissions.
