@@ -976,3 +976,56 @@ kbd {
   }
 
 }
+
+.release-list {
+  margin-top: clamp(3rem, 6vw, 5rem);
+  border-top: 1px solid var(--chalk);
+}
+
+.release-list + .release-list {
+  margin-top: clamp(2.5rem, 5vw, 4rem);
+}
+
+.release-list h3 {
+  margin: clamp(1.4rem, 2.8vw, 2rem) 0 0.7rem;
+  color: var(--brass-pale);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.release-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.release-list li {
+  position: relative;
+  max-width: 62ch;
+  padding: 0.5rem 0 0.5rem 1.35rem;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--paper);
+}
+
+.release-list li::before {
+  position: absolute;
+  top: 0.95rem;
+  left: 0;
+  width: 0.6rem;
+  height: 0.6rem;
+  background: var(--brass);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  content: "";
+}
+
+.release-list code {
+  color: var(--brass-pale);
+  font-family: var(--mono);
+  font-size: 0.85em;
+}
+
+.reference-section .usage-terminal + .release-list {
+  margin-top: clamp(2.5rem, 5vw, 4rem);
+}

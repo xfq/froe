@@ -9,6 +9,7 @@ Froe CLI parses commands, renders events, and collects terminal input. Froe core
 - [README](https://raw.githubusercontent.com/xfq/froe/main/README.md): Froe CLI installation and use, the Froe core library interface, shared configuration, MCP servers, safety, observability, and development.
 - [Architecture](https://raw.githubusercontent.com/xfq/froe/main/ARCHITECTURE.md): Boundaries and responsibilities of Froe core, Froe CLI, and their internal modules.
 - [Configuration schema](https://raw.githubusercontent.com/xfq/froe/main/froe.config.schema.json): Machine-readable configuration keys and validation rules.
+- [Changelog](https://raw.githubusercontent.com/xfq/froe/main/site/changelog.html): Release history for Froe CLI and Froe core.
 
 ## Optional
 

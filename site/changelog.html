@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Release history for Froe CLI and Froe core."
+    >
+    <meta name="theme-color" content="#11100d">
+    <title>Froe changelog</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body class="reference-page">
+    <a class="skip-link" href="#main">Skip to main content</a>
+
+    <header class="site-header">
+      <div class="shell header-inner">
+        <a class="brand" href="./index.html" aria-label="Froe home">
+          <svg class="brand-mark" viewBox="0 0 44 44" aria-hidden="true">
+            <path d="M4 8h24l12 14-12 14H4l12-14L4 8Z"></path>
+            <path d="M4 8 28 36"></path>
+          </svg>
+          <span>froe</span>
+        </a>
+
+        <nav aria-label="Primary">
+          <ul>
+            <li><a href="./index.html">Overview</a></li>
+            <li><a href="./commands.html">Commands</a></li>
+            <li><a href="./changelog.html" aria-current="page">Changelog</a></li>
+            <li><a href="https://github.com/xfq/froe">GitHub</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <section class="reference-hero" id="top">
+        <div class="shell reference-hero-grid">
+          <div class="reference-hero-copy">
+            <h1>Froe changelog</h1>
+            <p>
+              Latest updates to Froe CLI &amp; core
+            </p>
+          </div>
+
+          <nav class="reference-index" aria-label="On this page">
+            <p>On this page</p>
+            <ol>
+              <li><a href="#v0-2-1">0.2.1</a></li>
+              <li><a href="#v0-2-0">0.2.0</a></li>
+              <li><a href="#v0-1-0">0.1.0</a></li>
+            </ol>
+          </nav>
+        </div>
+      </section>
+
+      <div class="shell reference-layout">
+        <aside class="reference-rail" aria-label="Release versions">
+          <a href="#v0-2-1">02 <span>0.2.1</span></a>
+          <a href="#v0-2-0">03 <span>0.2.0</span></a>
+          <a href="#v0-1-0">04 <span>0.1.0</span></a>
+        </aside>
+
+        <div class="reference-content">
+          <section class="reference-section" id="v0-2-1">
+            <div class="reference-heading">
+              <h2>0.2.1</h2>
+              <p>
+                Published <time datetime="2026-08-30">August 30, 2026</time>
+                &middot; npm package <code>@xfq/froe</code>
+              </p>
+            </div>
+
+            <div class="usage-terminal" aria-label="Install Froe 0.2.1">
+              <span>Install</span>
+              <code>npm install --global @xfq/froe@0.2.1</code>
+            </div>
+
+            <div class="release-list">
+              <h3>New features</h3>
+              <ul>
+                <li>
+                  Froe core becomes a public library: <code>@xfq/froe/core</code>
+                  exports <code>openFroeSession</code>, <code>configureFroe</code>,
+                  and a typed <code>FroeSession</code> interface with ordered
+                  events and an approval adapter.
+                </li>
+                <li>
+                  New <code>summarizeAction</code> and <code>redactSensitiveText</code>
+                  helpers give graphical and other presentation adapters safe,
+                  credential-redacted action summaries.
+                </li>
+              </ul>
+            </div>
+
+            <div class="release-list">
+              <h3>Internal</h3>
+              <ul>
+                <li>
+                  The CLI and conversation handling were refactored onto the
+                  same unified <code>FroeSession</code> interface, removing the
+                  separate conversation path.
+                </li>
+              </ul>
+            </div>
+          </section>
+
+          <section class="reference-section" id="v0-2-0">
+            <div class="reference-heading">
+              <h2>0.2.0</h2>
+              <p>
+                Published <time datetime="2026-08-30">August 30, 2026</time>
+                &middot; npm package <code>@xfq/froe</code>
+              </p>
+            </div>
+
+            <div class="usage-terminal" aria-label="Install Froe 0.2.0">
+              <span>Install</span>
+              <code>npm install --global @xfq/froe@0.2.0</code>
+            </div>
+
+            <div class="release-list">
+              <h3>New features</h3>
+              <ul>
+                <li>
+                  MCP servers: register local stdio servers
+                  (<code>froe mcp add &lt;label&gt; -- &lt;command&gt;</code>) or
+                  remote Streamable HTTP endpoints (<code>--url</code>), with
+                  namespaced tools such as <code>mcp__context7__resolve-library-id</code>
+                  and a <code>/mcp</code> slash command that lists active
+                  servers. Tool calls support cancellation.
+                </li>
+                <li>
+                  Web search: save a Tavily API key once with
+                  <code>--configure-tavily</code> and let the model search
+                  current external documentation through the
+                  <code>web_search</code> action.
+                </li>
+                <li>
+                  Model selection: choose an OpenAI-compatible model per
+                  conversation with <code>/model</code>, or set
+                  <code>model</code> in configuration.
+                </li>
+                <li>
+                  Automatic updates: npm-managed global installs check for a
+                  newer stable release at most once every 24 hours. Source
+                  checkouts and <code>npx</code> runs are never modified, and
+                  <code>--no-update</code> skips the check.
+                </li>
+                <li>
+                  Server-side context compaction with a configurable
+                  <code>compactThresholdTokens</code> (or <code>null</code> to
+                  disable), recording a safe <code>context_compacted</code>
+                  event with only item counts and the threshold.
+                </li>
+                <li>
+                  Additional directories: repeatable <code>--add-dir &lt;path&gt;</code>
+                  grants a run read and write access to named directories
+                  outside the Workspace.
+                </li>
+                <li>
+                  Image attachments: repeatable <code>--image &lt;path&gt;</code>
+                  attaches PNG, JPEG, WEBP, or GIF files to the first prompt.
+                </li>
+                <li>
+                  macOS Seatbelt sandbox hardening: spawned commands read only
+                  the Workspace, declared additional directories, their
+                  temporary directory, required system runtime locations, and
+                  the resolved Node toolchain; network access is denied and the
+                  child receives a temporary home directory.
+                </li>
+                <li>
+                  <code>froe --version</code> prints the installed package
+                  version.
+                </li>
+              </ul>
+            </div>
+          </section>
+
+          <section class="reference-section" id="v0-1-0">
+            <div class="reference-heading">
+              <h2>0.1.0</h2>
+              <p>
+                Published <time datetime="2026-08-18">August 18, 2026</time>
+                &middot; npm package <code>@xfq/froe</code>
+              </p>
+            </div>
+
+            <div class="usage-terminal" aria-label="Install Froe 0.1.0">
+              <span>Install</span>
+              <code>npm install --global @xfq/froe@0.1.0</code>
+            </div>
+
+            <div class="release-list">
+              <h3>First release</h3>
+              <ul>
+                <li>
+                  Initial release of <code>@xfq/froe</code>: an inspectable
+                  coding agent for bounded work in a codebase.
+                </li>
+              </ul>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <div class="shell footer-inner">
+        <div class="footer-brand">
+          <svg class="brand-mark" viewBox="0 0 44 44" aria-hidden="true">
+            <path d="M4 8h24l12 14-12 14H4l12-14L4 8Z"></path>
+            <path d="M4 8 28 36"></path>
+          </svg>
+        </div>
+        <div class="footer-links">
+          <a href="./index.html">Overview</a>
+          <a href="./commands.html">Commands</a>
+          <a href="./changelog.html">Changelog</a>
+          <a href="https://github.com/xfq/froe">GitHub</a>
+          <a href="https://github.com/xfq/froe-desktop">Froe Desktop</a>
+          <a href="https://github.com/xfq/froe/blob/main/README.md">Documentation</a>
+          <a href="https://github.com/xfq/froe/blob/main/LICENSE">Apache-2.0</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
