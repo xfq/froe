@@ -49,6 +49,7 @@
           <nav class="reference-index" aria-label="On this page">
             <p>On this page</p>
             <ol>
+              <li><a href="#v0-3-0">0.3.0</a></li>
               <li><a href="#v0-2-1">0.2.1</a></li>
               <li><a href="#v0-2-0">0.2.0</a></li>
               <li><a href="#v0-1-0">0.1.0</a></li>
@@ -59,12 +60,59 @@
 
       <div class="shell reference-layout">
         <aside class="reference-rail" aria-label="Release versions">
+          <a href="#v0-3-0">01 <span>0.3.0</span></a>
           <a href="#v0-2-1">02 <span>0.2.1</span></a>
           <a href="#v0-2-0">03 <span>0.2.0</span></a>
           <a href="#v0-1-0">04 <span>0.1.0</span></a>
         </aside>
 
         <div class="reference-content">
+          <section class="reference-section" id="v0-3-0">
+            <div class="reference-heading">
+              <h2>0.3.0</h2>
+              <p>
+                Published <time datetime="2026-09-01">September 1, 2026</time>
+                &middot; npm package <code>@xfq/froe</code>
+              </p>
+            </div>
+
+            <div class="usage-terminal" aria-label="Install Froe 0.3.0">
+              <span>Install</span>
+              <code>npm install --global @xfq/froe@0.3.0</code>
+            </div>
+
+            <div class="release-list">
+              <h3>New features</h3>
+              <ul>
+                <li>
+                  Resumable conversation history: interactive sessions persist
+                  the conversation's model context per Workspace in an
+                  owner-only JSON file at
+                  <code>$XDG_STATE_HOME/froe/conversations/</code>, or
+                  <code>~/.local/state/froe/conversations/</code> by default.
+                  The next <code>froe</code> invocation in the same directory
+                  restores it, so you can close the terminal and continue
+                  later; <code>/new</code> clears the stored context and starts
+                  a fresh conversation. Attached image bytes are stripped from
+                  the stored file, one-shot task invocations never load or
+                  update it, and a missing, unreadable, or foreign file starts
+                  a fresh conversation.
+                </li>
+              </ul>
+            </div>
+
+            <div class="release-list">
+              <h3>Internal</h3>
+              <ul>
+                <li>
+                  The macOS sandbox violation monitor waits for expected denial
+                  events instead of relying on a fixed flush delay, making
+                  non-zero command exits more reliable on CI.
+                </li>
+              </ul>
+            </div>
+          </section>
+
           <section class="reference-section" id="v0-2-1">
             <div class="reference-heading">
               <h2>0.2.1</h2>
