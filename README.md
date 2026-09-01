@@ -1,14 +1,19 @@
 # froe
 
-froe is an inspectable coding agent for work in a codebase. Here, *inspectable* means a person can reconstruct a run after the fact: which actions it requested, their effects or results, the approval decisions that applied, and why it completed, stopped, or failed. The control flow that governs those decisions is explicit in the code, and the core emits structured run events and records. It does not mean retaining source contents or unrestricted model text by default.
+Froe is an inspectable coding agent for work in a codebase. Here, *inspectable* means a person can reconstruct a run after the fact: which actions it requested, their effects or results, the approval decisions that applied, and why it completed, stopped, or failed. The control flow that governs those decisions is explicit in the code, and Froe core emits structured run events and records. It does not mean retaining source contents or unrestricted model text by default.
+
+The npm package exposes two public interfaces:
+
+- **Froe CLI** is the terminal application.
+- **Froe core** is the embeddable library imported from `@xfq/froe/core`. It owns sessions, runs, actions, safety policy, configuration, integrations, and records without depending on terminal input or output.
 
 A froe is a hand tool that splits wood along its grain; this agent borrows that idea for code changes: investigate the local structure, make a precise patch, and leave evidence behind.
 
 In the project mark, the forward wedge is the tool's cutting edge, and the diagonal stroke is the cut following the grain.
 
-## Quick start
+## Froe CLI quick start
 
-Requires Node.js 22+. Command execution currently requires macOS; on other operating systems, file actions still work but `run_command` fails closed. Install froe globally with npm:
+Requires Node.js 22+. Command execution currently requires macOS; on other operating systems, file actions still work but `run_command` fails closed. Install Froe CLI globally with npm:
 
 ```sh
 npm install --global @xfq/froe
@@ -36,7 +41,7 @@ cd /path/to/your-project
 froe "Fix the failing parser tests"
 ```
 
-Run `froe` without a task in an interactive terminal to keep working in the same conversation. Each message starts a bounded run with the current model context and Workspace; blank messages are ignored, and `/exit` leaves the conversation. Press Tab after `/` to complete the available slash commands:
+Run Froe CLI without a task to keep working in the same terminal conversation. Each message starts a bounded run with the current model context and Workspace; blank messages are ignored, and `/exit` leaves the conversation. Press Tab after `/` to complete the available slash commands:
 
 ```text
 $ froe
@@ -91,7 +96,7 @@ froe --workspace ../my-project --add-dir ../shared --add-dir ../generated "Updat
 
 ## Configuration
 
-froe merges settings in this order: CLI flags, a path explicitly passed with `--config`, Workspace configuration, user configuration, then defaults.
+Every session uses Froe core's shared configuration system, including sessions opened by Froe CLI. From highest to lowest precedence, it merges invocation overrides, an explicit configuration file, Workspace configuration, user configuration, and defaults. When using Froe CLI, `--config` selects the explicit file and configuration-related flags supply the invocation overrides; embedders pass `configPath` and `overrides` to `openFroeSession`.
 
 - User configuration: `$XDG_CONFIG_HOME/froe/config.json`, or `~/.config/froe/config.json`
 - Workspace configuration: `.froe/config.json`
@@ -168,9 +173,15 @@ Automatic update checks store only their last-check timestamp in `$XDG_STATE_HOM
 
 The OpenAI adapter sends `store: false` and retains the current session's continuation state in memory. When server-side compaction returns a checkpoint, froe discards the older in-memory continuation and records a safe `context_compacted` event containing only item counts and the configured threshold. The opaque checkpoint is never copied into the run record. Sessions cannot be resumed after the process exits. See [OpenAI's data controls documentation](https://developers.openai.com/api/docs/guides/your-data#default-usage-policies-by-endpoint) for the distinction between response storage and API abuse-monitoring retention.
 
-## Core library
+## Froe core
 
-`@xfq/froe/core` is the supported interface for building another presentation adapter. `openFroeSession` loads the same configuration and credentials as the CLI, creates the provider, recorder, approval gate, sandbox, action runtime, project instructions, Tavily adapter, and MCP connections, and returns one session for a fixed Workspace.
+Froe core is the adapter-independent agent runtime, not a wrapper around the CLI. `@xfq/froe/core` is its supported public interface for building another presentation adapter. `openFroeSession` loads the same configuration and credentials used by Froe CLI, creates the provider, recorder, approval gate, sandbox, action runtime, project instructions, Tavily adapter, and MCP connections, and returns one session for a fixed Workspace.
+
+Install the package as an application dependency, then import its core subpath:
+
+```sh
+npm install @xfq/froe
+```
 
 ```ts
 import { openFroeSession } from "@xfq/froe/core";
@@ -191,7 +202,7 @@ try {
 }
 ```
 
-The adapter receives versioned, ordered event envelopes and may collect only the approval decisions offered by the core. If no approval adapter is present, approval-required actions fail closed. `session.status()` returns serializable Workspace, effective configuration, record path, MCP status, and active-run state. A session accepts only one run at a time, preserves provider continuation across sequential runs, and cancels its active run before closing.
+The adapter receives versioned, ordered event envelopes and may collect only the approval decisions offered by Froe core. If no approval adapter is present, approval-required actions fail closed. `session.status()` returns serializable Workspace, effective configuration, record path, MCP status, and active-run state. A session accepts only one run at a time, preserves provider continuation across sequential runs, and cancels its active run before closing.
 
 Graphical and other presentation adapters should use the exported `summarizeAction` and `redactSensitiveText` helpers when displaying action details or approval reasons. The summaries omit source and search contents and redact common credential-shaped values. Their output is plain text, not sanitized HTML.
 

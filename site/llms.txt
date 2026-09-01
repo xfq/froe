@@ -1,12 +1,13 @@
-# froe
+# Froe
 
-> Froe is an inspectable coding agent for bounded work in a codebase. It makes precise changes in one Workspace, asks for approvals where required, and records enough metadata to reconstruct each run.
+> Froe is an inspectable coding agent for bounded work in a codebase. Froe CLI is its terminal application; Froe core is its adapter-independent runtime and public `@xfq/froe/core` library interface.
 
-Use the README for installation, everyday CLI use, configuration, MCP integration, safety behavior, and development.
+Froe CLI parses commands, renders events, and collects terminal input. Froe core owns sessions, runs, actions, approvals, integrations, lifecycle, and records. The CLI is one presentation adapter over the core.
 
-## Core documentation
+## Documentation
 
-- [README](https://raw.githubusercontent.com/xfq/froe/main/README.md): Installation, quick start, CLI use, configuration, MCP servers, safety model, observability, and development.
+- [README](https://raw.githubusercontent.com/xfq/froe/main/README.md): Froe CLI installation and use, the Froe core library interface, shared configuration, MCP servers, safety, observability, and development.
+- [Architecture](https://raw.githubusercontent.com/xfq/froe/main/ARCHITECTURE.md): Boundaries and responsibilities of Froe core, Froe CLI, and their internal modules.
 - [Configuration schema](https://raw.githubusercontent.com/xfq/froe/main/froe.config.schema.json): Machine-readable configuration keys and validation rules.
 
 ## Optional
