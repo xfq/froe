@@ -298,6 +298,7 @@ nav a:hover,
 
 .hero-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-start;
   margin-bottom: 0;
