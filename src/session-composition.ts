@@ -1,6 +1,8 @@
+import type { ResponseInputItem } from "openai/resources/responses/responses";
 import { ActionRuntime } from "./action-runtime.js";
 import { createCommandSandbox } from "./command-sandbox.js";
 import { FileCredentialStore, resolveOpenAICredentials, resolveTavilyApiKey } from "./credentials.js";
+import { ConversationHistoryStore } from "./conversation-history.js";
 import { discoverProjectInstructions } from "./instructions.js";
 import { McpManager } from "./mcp.js";
 import { OpenAIProvider } from "./openai-provider.js";
@@ -11,6 +13,7 @@ import {
   type ApprovalMode,
   type FroeSession,
   type FroeSessionAdapter,
+  type FroeSessionEvent,
 } from "./session.js";
 import { TavilyWebSearch } from "./tavily-web-search.js";
 import type { FroeConfig } from "./types.js";
@@ -26,6 +29,7 @@ export interface OpenFroeSessionWithConfigOptions {
   additionalDirectories?: readonly string[];
   config: FroeConfig;
   noLog?: boolean;
+  resumeHistory?: boolean;
   approvalMode?: ApprovalMode;
   connectionPrompts?: FroeConnectionPrompts;
   adapter?: FroeSessionAdapter;
@@ -53,6 +57,8 @@ export async function openFroeSessionWithConfig(options: OpenFroeSessionWithConf
   });
   const recorder = await RunRecorder.create(options.config.logging, options.noLog ?? false);
   const approval = new SessionApprovalGate(options.approvalMode ?? "prompt", options.adapter);
+  const historyStore = options.resumeHistory === true ? ConversationHistoryStore.forWorkspace(options.workspace) : undefined;
+  const restoredHistory = (await historyStore?.load() ?? []) as unknown as ResponseInputItem[];
   const additionalDirectories = [...(options.additionalDirectories ?? [])];
   const commandSandbox = await createCommandSandbox(options.workspace, additionalDirectories);
   const runtime = await ActionRuntime.create(
@@ -65,8 +71,13 @@ export async function openFroeSessionWithConfig(options: OpenFroeSessionWithConf
     new TavilyWebSearch(tavilyApiKey === undefined ? {} : { apiKey: tavilyApiKey }),
   );
   const instructions = await discoverProjectInstructions(runtime.workspace);
-  const provider = new OpenAIProvider(options.config, credentials);
+  const provider = new OpenAIProvider(options.config, {
+    apiKey: credentials.apiKey,
+    baseURL: credentials.baseURL,
+    ...(restoredHistory.length === 0 ? {} : { history: restoredHistory }),
+  });
   const mcp = await McpManager.connect(options.config.mcpServers);
+  const historyAdapter = withConversationHistoryPersistence(options.adapter, historyStore, provider);
   return createFroeSession({
     config: options.config,
     model: provider,
@@ -76,8 +87,34 @@ export async function openFroeSessionWithConfig(options: OpenFroeSessionWithConf
     instructions,
     recorder,
     approval,
-    ...(options.adapter === undefined ? {} : { adapter: options.adapter }),
+    ...(historyAdapter === undefined ? {} : { adapter: historyAdapter }),
+    ...(historyStore === undefined
+      ? {}
+      : {
+        onConversationReset: async (): Promise<void> => {
+          await historyStore.clear();
+        },
+      }),
   });
+}
+
+function withConversationHistoryPersistence(
+  adapter: FroeSessionAdapter | undefined,
+  store: ConversationHistoryStore | undefined,
+  provider: OpenAIProvider,
+): FroeSessionAdapter | undefined {
+  if (store === undefined) return adapter;
+  const onEvent = async (envelope: FroeSessionEvent): Promise<void> => {
+    try {
+      if (envelope.event.type === "run_finished") await store.save(provider.exportHistory());
+    } catch {
+      // Persistence is best-effort: a failed history write must not turn a
+      // completed run into a reported failure or lose its already-recorded
+      // events. The in-memory conversation still continues normally.
+    }
+    await adapter?.onEvent?.(envelope);
+  };
+  return { ...adapter, onEvent };
 }
 
 async function missingPrompt(): Promise<string> {

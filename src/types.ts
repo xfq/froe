@@ -115,6 +115,7 @@ export interface ModelTurn {
 export interface ModelProvider {
   readonly name: string;
   recordActionResults(results: ActionResult[]): void;
+  resetContinuation?(): void;
   turn(input: ModelTurn): AsyncIterable<ModelEvent>;
 }
 

@@ -59,6 +59,8 @@ you: Re-run the failing test
 you: /exit
 ```
 
+The conversation's model context is stored per Workspace and resumes the next time you start `froe` in that directory, so you can close the terminal and continue later. Type `/new` to clear the stored context and start a fresh conversation. One-shot invocations with a task argument do not load or update the stored conversation.
+
 Use `/model <model-id>` to select the OpenAI-compatible model for later messages in the current conversation. It does not change configuration files or the default for the next invocation, and it retains the in-memory conversation context.
 
 Use `"/init"` to ask Froe to inspect the workspace and create a starter `AGENTS.md`. It preserves an existing root instruction file:
@@ -171,7 +173,9 @@ Each CLI invocation writes a JSONL record to `$XDG_STATE_HOME/froe/runs` or `~/.
 
 Automatic update checks store only their last-check timestamp in `$XDG_STATE_HOME/froe/update.json`, or `~/.local/state/froe/update.json` by default.
 
-The OpenAI adapter sends `store: false` and retains the current session's continuation state in memory. When server-side compaction returns a checkpoint, froe discards the older in-memory continuation and records a safe `context_compacted` event containing only item counts and the configured threshold. The opaque checkpoint is never copied into the run record. Sessions cannot be resumed after the process exits. See [OpenAI's data controls documentation](https://developers.openai.com/api/docs/guides/your-data#default-usage-policies-by-endpoint) for the distinction between response storage and API abuse-monitoring retention.
+Interactive conversations keep one resumable continuation per Workspace in `$XDG_STATE_HOME/froe/conversations/<workspace-hash>.json`, or `~/.local/state/froe/conversations/<workspace-hash>.json` by default. The file is owner-only and outside the Workspace, and it stores the same continuation items the model already saw: assistant text, tool calls and their source-bearing results, and compaction checkpoints. Attached image bytes are stripped. Froe loads it when an interactive session starts and saves it after each completed run; `/new` deletes it and resets the in-memory context. A missing, unreadable, or foreign history file starts a fresh conversation, and a failed save never changes a completed run's reported outcome.
+
+The OpenAI adapter sends `store: false` and retains the current session's continuation state in memory. When server-side compaction returns a checkpoint, froe discards the older in-memory continuation and records a safe `context_compacted` event containing only item counts and the configured threshold. The opaque checkpoint is never copied into the run record. See [OpenAI's data controls documentation](https://developers.openai.com/api/docs/guides/your-data#default-usage-policies-by-endpoint) for the distinction between response storage and API abuse-monitoring retention.
 
 ## Froe core
 

@@ -13,6 +13,7 @@ import {
   createFroeSession,
   SessionApprovalGate,
   type FroeApprovalPrompt,
+  type FroeSessionDependencies,
   type FroeSession,
   type FroeSessionAdapter,
   type FroeSessionEvent,
@@ -121,10 +122,42 @@ test("a core session rejects concurrent runs at its interface", async () => {
   await session.close();
 });
 
+test("a core session resets model continuation and notifies the composition hook", async () => {
+  const root = await mkdtemp(join(tmpdir(), "froe-session-"));
+  const model = new ScriptedModel([
+    (turn) => {
+      assert.equal(turn.user, "First task");
+      return [finishAction("first", "First complete")];
+    },
+    (turn) => {
+      assert.equal(turn.user, "Second task");
+      return [finishAction("second", "Second complete")];
+    },
+  ]);
+  let hookCalls = 0;
+  const session = await sessionFor(root, model, {}, {
+    onConversationReset: () => {
+      hookCalls += 1;
+    },
+  });
+
+  const first = await session.run({ task: "First task" });
+  assert.equal(first.summary, "First complete");
+  assert.equal(hookCalls, 0);
+
+  await session.resetConversation?.();
+  assert.equal(hookCalls, 1);
+
+  const replayed = await session.run({ task: "First task" });
+  assert.equal(replayed.summary, "First complete");
+  await session.close();
+});
+
 async function sessionFor(
   root: string,
   model: ScriptedModel,
   adapter: FroeSessionAdapter = {},
+  dependencies: Partial<FroeSessionDependencies> = {},
 ): Promise<FroeSession> {
   const approval = new SessionApprovalGate("prompt", adapter);
   const runtime = await ActionRuntime.create(root, defaultConfig, approval, new NoCommands());
@@ -140,6 +173,7 @@ async function sessionFor(
     recorder,
     approval,
     adapter,
+    ...dependencies,
   });
 }
 

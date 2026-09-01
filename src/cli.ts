@@ -65,6 +65,7 @@ async function main(): Promise<void> {
     additionalDirectories: options.additionalDirectories,
     config: options.config,
     noLog: options.noLog,
+    resumeHistory: conversationMode,
     approvalMode: options.yes ? "auto_non_destructive" : "prompt",
     ...(input.isTTY === true && output.isTTY === true
       ? {
@@ -104,6 +105,10 @@ async function main(): Promise<void> {
         signal: controller.signal,
         onModelSelected: (model) => {
           output.write(`froe conversation · ${model}\n`);
+        },
+        onResetConversation: async () => {
+          await session.resetConversation?.();
+          output.write("Conversation history cleared; starting fresh.\n");
         },
         showMcpServers: printMcpServers,
       });
@@ -364,7 +369,7 @@ function createRenderer(verbose: boolean, recordPath: string | undefined, conver
 function printConversationBanner(status: FroeSessionStatus): void {
   output.write(`froe conversation · ${status.config.model}\nworkspace: ${status.workspace}\n`);
   if (status.recordPath !== undefined) output.write(`record: ${status.recordPath}\n`);
-  output.write("Send a follow-up after each run, type /mcp to list active servers, or type /exit to leave.\n");
+  output.write("Send a follow-up after each run, type /mcp to list active servers, /new to start a fresh conversation, or type /exit to leave.\n");
 }
 
 function printMcpServers(status: FroeSessionStatus): void {

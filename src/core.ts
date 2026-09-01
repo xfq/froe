@@ -61,6 +61,7 @@ export interface OpenFroeSessionOptions {
   configPath?: string;
   overrides?: ConfigOverrides;
   noLog?: boolean;
+  resumeHistory?: boolean;
   approvalMode?: ApprovalMode;
   connectionPrompts?: FroeConnectionPrompts;
   adapter?: FroeSessionAdapter;
@@ -115,6 +116,7 @@ export async function openFroeSession(options: OpenFroeSessionOptions): Promise<
       ...(options.additionalDirectories === undefined ? {} : { additionalDirectories: options.additionalDirectories }),
       config,
       ...(options.noLog === undefined ? {} : { noLog: options.noLog }),
+      ...(options.resumeHistory === undefined ? {} : { resumeHistory: options.resumeHistory }),
       ...(options.approvalMode === undefined ? {} : { approvalMode: options.approvalMode }),
       ...(options.connectionPrompts === undefined ? {} : { connectionPrompts: options.connectionPrompts }),
       ...(options.adapter === undefined ? {} : { adapter: options.adapter }),

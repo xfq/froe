@@ -5,6 +5,7 @@ import { once } from "node:events";
 import { OpenAIProvider } from "../src/openai-provider.js";
 import { defaultConfig } from "../src/config.js";
 import type { ModelEvent, ModelTurn } from "../src/types.js";
+import type { ResponseInputItem } from "openai/resources/responses/responses";
 
 test("the OpenAI adapter sends stateless function-call turns to a local server", async () => {
   const requests: Array<Record<string, unknown>> = [];
@@ -258,6 +259,118 @@ test("the OpenAI adapter sends each attached image as input_image content", asyn
         { type: "input_image", detail: "auto", image_url: "data:image/jpeg;base64,BAUG" },
       ],
     });
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("the OpenAI adapter resumes from persisted continuation items", async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>);
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(responseWithMessage("done")));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Expected a TCP server address");
+    const restored = [
+      { role: "user", content: "Earlier task" },
+      { type: "function_call_output", call_id: "earlier", output: JSON.stringify({ ok: true, output: { outcome: "blocked" } }) },
+    ] as unknown as ResponseInputItem[];
+    const provider = new OpenAIProvider(defaultConfig, {
+      apiKey: "test-key",
+      baseURL: `http://127.0.0.1:${address.port}/v1`,
+      history: restored,
+    });
+
+    await collect(provider.turn({ system: "test system", user: "Continue", tools: [] }));
+
+    assert.deepEqual(requests[0]?.input, [...restored, { role: "user", content: "Continue" }]);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("exported continuation history is JSON-safe and omits attached images", async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>);
+    const payload = requests.length === 1
+      ? responseWithFunctionCall("finish", "call_finish", "{}")
+      : responseWithMessage("done");
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(payload));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Expected a TCP server address");
+    const baseURL = `http://127.0.0.1:${address.port}/v1`;
+    const provider = new OpenAIProvider(defaultConfig, { apiKey: "test-key", baseURL });
+    await collect(provider.turn({
+      system: "test system",
+      user: "Inspect these screenshots",
+      images: [{ data: Uint8Array.of(1, 2, 3), mediaType: "image/png" }],
+      tools: [{ name: "finish", description: "Finish", parameters: { type: "object" } }],
+    }));
+    provider.recordActionResults([{ callId: "call_finish", name: "finish", ok: true, output: { outcome: "blocked" } }]);
+
+    const exported = provider.exportHistory();
+    const serialized = JSON.stringify(exported);
+    assert.deepEqual(JSON.parse(serialized), exported);
+    assert.doesNotMatch(serialized, /input_image|AQID/);
+    assert.deepEqual(exported[0], { role: "user", content: [{ type: "input_text", text: "Inspect these screenshots" }] });
+    assert.equal((exported[1] as Record<string, unknown>).type, "function_call");
+    assert.equal((exported[2] as Record<string, unknown>).type, "function_call_output");
+
+    const resumed = new OpenAIProvider(defaultConfig, {
+      apiKey: "test-key",
+      baseURL,
+      history: exported as unknown as ResponseInputItem[],
+    });
+    await collect(resumed.turn({ system: "test system", user: "Continue", tools: [] }));
+    assert.deepEqual(requests[1]?.input, [...exported, { role: "user", content: "Continue" }]);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("resetContinuation drops the in-memory continuation history", async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>);
+    const payload = requests.length === 1
+      ? responseWithFunctionCall("finish", "call_finish", "{}")
+      : responseWithMessage("done");
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(payload));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Expected a TCP server address");
+    const provider = new OpenAIProvider(defaultConfig, { apiKey: "test-key", baseURL: `http://127.0.0.1:${address.port}/v1` });
+    await collect(provider.turn({ system: "test system", user: "First task", tools: [] }));
+    provider.recordActionResults([{ callId: "call_finish", name: "finish", ok: true, output: { outcome: "blocked" } }]);
+    provider.resetContinuation();
+
+    await collect(provider.turn({ system: "test system", user: "Fresh task", tools: [] }));
+
+    assert.deepEqual(requests[1]?.input, [{ role: "user", content: "Fresh task" }]);
   } finally {
     server.close();
     await once(server, "close");

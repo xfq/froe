@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { toResponseInputItems } from "openai/lib/responses/ResponseInputItems";
 import type { ResponseInputItem, ResponseInputMessageContentList, ResponseOutputItem } from "openai/resources/responses/responses";
-import type { ActionRequest, ActionResult, FroeConfig, ModelEvent, ModelProvider, ModelTurn, PromptImage } from "./types.js";
+import type { ActionRequest, ActionResult, FroeConfig, JsonValue, ModelEvent, ModelProvider, ModelTurn, PromptImage } from "./types.js";
 
 export class OpenAIProvider implements ModelProvider {
   readonly name = "openai";
@@ -15,6 +15,7 @@ export class OpenAIProvider implements ModelProvider {
     if (!apiKey) throw new Error("OPENAI_API_KEY is required for the openai provider");
     this.#config = config;
     this.#model = config.model;
+    this.#history = options.history === undefined ? [] : [...options.history];
     const baseURL = options.baseURL ?? config.baseURL ?? process.env.OPENAI_BASE_URL;
     this.#client = new OpenAI({ apiKey, maxRetries: 2, ...(baseURL === undefined ? {} : { baseURL }) });
   }
@@ -33,6 +34,19 @@ export class OpenAIProvider implements ModelProvider {
         output: JSON.stringify({ ok: result.ok, output: result.output }),
       });
     }
+  }
+
+  /**
+   * Returns the current continuation items as JSON for persistence. Attached
+   * image bytes are stripped because they belong only to the invocation that
+   * supplied them and would bloat the stored history with stale base64 data.
+   */
+  exportHistory(): JsonValue[] {
+    return persistableHistory(this.#history);
+  }
+
+  resetContinuation(): void {
+    this.#history = [];
   }
 
   async *turn(input: ModelTurn): AsyncIterable<ModelEvent> {
@@ -104,6 +118,7 @@ function userMessage(text: string, images: PromptImage[]): ResponseInputItem {
 export interface OpenAIProviderOptions {
   apiKey?: string;
   baseURL?: string;
+  history?: readonly ResponseInputItem[];
 }
 
 function* modelEventsFor(item: ResponseOutputItem): Generator<ModelEvent> {
@@ -132,4 +147,26 @@ function parseArguments(raw: string): unknown {
   } catch {
     return { __froe_invalid_json: raw };
   }
+}
+
+function persistableHistory(history: readonly ResponseInputItem[]): JsonValue[] {
+  const result: JsonValue[] = [];
+  for (const item of history) {
+    const content = messageContent(item);
+    if (content === undefined) {
+      result.push(item as unknown as JsonValue);
+      continue;
+    }
+    const stripped = content.filter((part) => part.type !== "input_image");
+    if (stripped.length === 0) continue;
+    result.push((stripped.length === content.length ? item : { ...item, content: stripped }) as unknown as JsonValue);
+  }
+  return result;
+}
+
+function messageContent(item: ResponseInputItem): ResponseInputMessageContentList | undefined {
+  if (item === null || typeof item !== "object" || !("role" in item) || !("content" in item)) return undefined;
+  const content = item.content;
+  if (typeof content === "string" || !Array.isArray(content)) return undefined;
+  return content as unknown as ResponseInputMessageContentList;
 }

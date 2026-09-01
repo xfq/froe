@@ -20,6 +20,11 @@ export class ScriptedModel implements ModelProvider {
     this.#actionResults = [...(this.#actionResults ?? []), ...results];
   }
 
+  resetContinuation(): void {
+    this.#index = 0;
+    this.#actionResults = undefined;
+  }
+
   async *turn(input: ModelTurn): AsyncIterable<ModelEvent> {
     const script = this.#scripts[this.#index];
     const index = this.#index;

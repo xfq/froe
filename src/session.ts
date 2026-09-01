@@ -57,6 +57,7 @@ export interface FroeRunRequest {
 export interface FroeSession {
   status(): FroeSessionStatus;
   run(request: FroeRunRequest): Promise<RunOutcome>;
+  resetConversation?(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -82,6 +83,7 @@ export interface FroeSessionDependencies {
   recorder: RunRecorder;
   approval: SessionApprovalGate;
   adapter?: FroeSessionAdapter;
+  onConversationReset?: () => void | Promise<void>;
 }
 
 interface ActiveRun {
@@ -146,6 +148,7 @@ class DefaultFroeSession implements FroeSession {
   readonly #recorder: RunRecorder;
   readonly #approval: SessionApprovalGate;
   readonly #adapter: FroeSessionAdapter;
+  readonly #onConversationReset: (() => void | Promise<void>) | undefined;
   #modelName: string;
   #sequence = 0;
   #active: ActiveRun | undefined;
@@ -162,6 +165,7 @@ class DefaultFroeSession implements FroeSession {
     this.#recorder = dependencies.recorder;
     this.#approval = dependencies.approval;
     this.#adapter = dependencies.adapter ?? {};
+    this.#onConversationReset = dependencies.onConversationReset;
     this.#modelName = dependencies.config.model;
   }
 
@@ -193,6 +197,13 @@ class DefaultFroeSession implements FroeSession {
     const result = this.#executeRun(id, request, controller, onAbort);
     this.#active = { id, controller, result };
     return result;
+  }
+
+  async resetConversation(): Promise<void> {
+    if (this.#closed) throw new FroeSessionError("session_closed", "This Froe session is closed.");
+    if (this.#active !== undefined) throw new FroeSessionError("session_busy", "This Froe session already has an active run.");
+    this.#model.resetContinuation?.();
+    await this.#onConversationReset?.();
   }
 
   close(): Promise<void> {

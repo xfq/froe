@@ -90,6 +90,26 @@ test("the terminal conversation adapter reads MCP status without starting a run"
   assert.deepEqual(statuses[0]?.activeMcpServers, [{ name: "docs", toolCount: 2 }]);
 });
 
+test("the terminal conversation adapter starts a fresh conversation on reset", async () => {
+  const session = new RecordingSession();
+  let resets = 0;
+
+  const outcomes = await runConversation({
+    session,
+    messages: messages("First task", { type: "reset" }, "Second task"),
+    onResetConversation: () => {
+      resets += 1;
+    },
+  });
+
+  assert.deepEqual(session.requests.map((request) => request.task), ["First task", "Second task"]);
+  assert.deepEqual(outcomes.map((outcome) => outcome.summary), [
+    "Handled First task",
+    "Handled Second task",
+  ]);
+  assert.equal(resets, 1);
+});
+
 async function* messages(...values: Array<string | TerminalMessage>): AsyncGenerator<TerminalMessage> {
   for (const value of values) yield typeof value === "string" ? { type: "task", text: value } : value;
 }

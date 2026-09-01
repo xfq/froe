@@ -4,6 +4,7 @@ import type { RunOutcome } from "./types.js";
 export type ConversationMessage =
   | { type: "task"; text: string }
   | { type: "model"; model: string }
+  | { type: "reset" }
   | { type: "mcp" };
 
 export interface ConversationRequest {
@@ -12,6 +13,7 @@ export interface ConversationRequest {
   imagePaths?: readonly string[];
   signal?: AbortSignal;
   onModelSelected?(model: string): void | Promise<void>;
+  onResetConversation?(): void | Promise<void>;
   showMcpServers?(status: FroeSessionStatus): void | Promise<void>;
 }
 
@@ -28,6 +30,10 @@ export async function runConversation(request: ConversationRequest): Promise<Run
     }
     if (message.type === "mcp") {
       await request.showMcpServers?.(request.session.status());
+      continue;
+    }
+    if (message.type === "reset") {
+      await request.onResetConversation?.();
       continue;
     }
 

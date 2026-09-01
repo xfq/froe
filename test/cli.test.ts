@@ -11,10 +11,11 @@ import { completeSlashCommand, terminalMessages } from "../src/terminal-conversa
 const execFile = promisify(execFileCallback);
 
 test("slash-command completion offers supported commands only", () => {
-  assert.deepEqual(completeSlashCommand("/"), [["/exit", "/init", "/mcp", "/model"], "/"]);
+  assert.deepEqual(completeSlashCommand("/"), [["/exit", "/init", "/mcp", "/model", "/new"], "/"]);
   assert.deepEqual(completeSlashCommand("/i"), [["/init"], "/i"]);
   assert.deepEqual(completeSlashCommand("/mcp"), [["/mcp"], "/mcp"]);
   assert.deepEqual(completeSlashCommand("/m"), [["/mcp", "/model"], "/m"]);
+  assert.deepEqual(completeSlashCommand("/n"), [["/new"], "/n"]);
   assert.deepEqual(completeSlashCommand("/unknown"), [[], "/unknown"]);
   assert.deepEqual(completeSlashCommand("implement feature"), [[], "implement feature"]);
 });
@@ -76,6 +77,22 @@ test("terminal input treats model selection as a control command", async () => {
   input.write("Continue the task\n");
   assert.deepEqual(await following, { value: { type: "task", text: "Continue the task" }, done: false });
   assert.match(terminalOutput, /Usage: \/model <model-id>/);
+  controller.abort();
+});
+
+test("terminal input treats new-conversation as a control command", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const controller = new AbortController();
+  const messages = terminalMessages(input, output, controller.signal)[Symbol.asyncIterator]();
+
+  const reset = messages.next();
+  input.write("/new\n");
+  assert.deepEqual(await reset, { value: { type: "reset" }, done: false });
+
+  const following = messages.next();
+  input.write("Continue fresh\n");
+  assert.deepEqual(await following, { value: { type: "task", text: "Continue fresh" }, done: false });
   controller.abort();
 });
 
