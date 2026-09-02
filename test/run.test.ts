@@ -289,3 +289,44 @@ test("a completed finish cannot hide a failed verification", async () => {
   });
   assert.equal(outcome.status, "blocked");
 });
+
+test("a run formats agent skills into the system prompt", async () => {
+  const root = await mkdtemp(join(tmpdir(), "froe-run-"));
+  const model = new ScriptedModel([(turn) => {
+    assert.match(turn.system, /Available agent skills:/);
+    assert.match(turn.system, /- demo-skill: A helpful demo skill/);
+    assert.match(turn.system, /read its `SKILL.md` using `read_file`/);
+    return [{
+      type: "action",
+      action: {
+        callId: "finish",
+        name: "finish",
+        arguments: {
+          outcome: "completed",
+          summary: "Inspected skills.",
+          verification: [{ description: "Skills prompt check", result: "passed" }],
+        },
+      },
+    }];
+  }]);
+
+  const outcome = await runTask({
+    task: "Check skills",
+    model,
+    runtime: await runtime(root),
+    instructions: [],
+    skills: [
+      {
+        name: "demo-skill",
+        description: "A helpful demo skill.",
+        path: ".agents/skills/demo-skill/SKILL.md",
+        directory: join(root, ".agents/skills/demo-skill"),
+        scope: "workspace",
+      },
+    ],
+    modelName: "scripted",
+    maxTurns: 1,
+  });
+
+  assert.equal(outcome.status, "completed");
+});

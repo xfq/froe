@@ -4,6 +4,7 @@ import { createCommandSandbox } from "./command-sandbox.js";
 import { FileCredentialStore, resolveOpenAICredentials, resolveTavilyApiKey } from "./credentials.js";
 import { ConversationHistoryStore } from "./conversation-history.js";
 import { discoverProjectInstructions } from "./instructions.js";
+import { discoverSkills } from "./skills.js";
 import { McpManager } from "./mcp.js";
 import { OpenAIProvider } from "./openai-provider.js";
 import { RunRecorder } from "./recorder.js";
@@ -59,7 +60,17 @@ export async function openFroeSessionWithConfig(options: OpenFroeSessionWithConf
   const approval = new SessionApprovalGate(options.approvalMode ?? "prompt", options.adapter);
   const historyStore = options.resumeHistory === true ? ConversationHistoryStore.forWorkspace(options.workspace) : undefined;
   const restoredHistory = (await historyStore?.load() ?? []) as unknown as ResponseInputItem[];
-  const additionalDirectories = [...(options.additionalDirectories ?? [])];
+  const instructions = await discoverProjectInstructions(options.workspace);
+  const skills = await discoverSkills({
+    workspace: options.workspace,
+    ...(options.additionalDirectories === undefined ? {} : { additionalDirectories: options.additionalDirectories }),
+  });
+  const userSkillDirectories = skills
+    .filter((skill) => skill.scope === "user")
+    .map((skill) => skill.directory);
+  const additionalDirectories = [
+    ...new Set([...(options.additionalDirectories ?? []), ...userSkillDirectories]),
+  ];
   const commandSandbox = await createCommandSandbox(options.workspace, additionalDirectories);
   const runtime = await ActionRuntime.create(
     options.workspace,
@@ -70,7 +81,6 @@ export async function openFroeSessionWithConfig(options: OpenFroeSessionWithConf
     additionalDirectories,
     new TavilyWebSearch(tavilyApiKey === undefined ? {} : { apiKey: tavilyApiKey }),
   );
-  const instructions = await discoverProjectInstructions(runtime.workspace);
   const provider = new OpenAIProvider(options.config, {
     apiKey: credentials.apiKey,
     baseURL: credentials.baseURL,
@@ -85,6 +95,7 @@ export async function openFroeSessionWithConfig(options: OpenFroeSessionWithConf
     runtime,
     mcp,
     instructions,
+    skills,
     recorder,
     approval,
     ...(historyAdapter === undefined ? {} : { adapter: historyAdapter }),

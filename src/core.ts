@@ -30,6 +30,16 @@ export type {
   FroeSessionEvent,
   FroeSessionStatus,
 } from "./session.js";
+export {
+  discoverSkills,
+  formatSkills,
+  parseSkillFrontmatter,
+  validateSkill,
+} from "./skills.js";
+export type {
+  AgentSkill,
+  DiscoverSkillsOptions,
+} from "./skills.js";
 export type { ConfigOverrides } from "./config.js";
 export type { FroeConnectionPrompts } from "./session-composition.js";
 export type { McpServerFailure, McpServerStatus } from "./mcp.js";

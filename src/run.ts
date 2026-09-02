@@ -1,4 +1,5 @@
 import { formatInstructions, type ProjectInstruction } from "./instructions.js";
+import { formatSkills, type AgentSkill } from "./skills.js";
 import type { McpManager } from "./mcp.js";
 import { toolDefinitions, type ActionRuntime } from "./action-runtime.js";
 import type { ActionResult, EventSink, ModelProvider, PromptImage, RunEvent, RunOutcome, Verification } from "./types.js";
@@ -10,6 +11,7 @@ export interface RunRequest {
   runtime: ActionRuntime;
   mcp?: McpManager;
   instructions: ProjectInstruction[];
+  skills?: AgentSkill[];
   modelName: string;
   maxTurns: number;
   signal?: AbortSignal;
@@ -18,7 +20,7 @@ export interface RunRequest {
 
 export async function runTask(request: RunRequest): Promise<RunOutcome> {
   const emit = request.emit ?? (() => undefined);
-  const system = systemPrompt(formatInstructions(request.instructions), request.runtime.additionalDirectories);
+  const system = systemPrompt(formatInstructions(request.instructions), formatSkills(request.skills ?? []), request.runtime.additionalDirectories);
   let turns = 0;
   await emit({ type: "run_started", workspace: request.runtime.workspace, model: request.modelName });
 
@@ -134,7 +136,7 @@ function actionErrorMessage(result: ActionResult): string {
   return `finish failed (${result.name})`;
 }
 
-function systemPrompt(instructions: string, additionalDirectories: readonly string[]): string {
+function systemPrompt(instructions: string, skillsSection: string, additionalDirectories: readonly string[]): string {
   const additionalDirectoryGuidance = additionalDirectories.length === 0
     ? "Paths are workspace-relative."
     : `Paths are workspace-relative, or absolute beneath one of these additional user-authorized directories:\n${additionalDirectories.map((path) => `- ${path}`).join("\n")}`;
@@ -150,5 +152,5 @@ Slash command: when the coding task is exactly \`/init\`, create a starter \`AGE
 
 Recognized project instructions, ordered from broadest scope to narrowest:
 
-${instructions}`;
+${instructions}${skillsSection ? `\n\n${skillsSection}` : ""}`;
 }

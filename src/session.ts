@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ActionRuntime, ApprovalGate } from "./action-runtime.js";
 import type { ProjectInstruction } from "./instructions.js";
+import type { AgentSkill } from "./skills.js";
 import type { McpManager, McpServerFailure, McpServerStatus } from "./mcp.js";
 import { loadPromptImages } from "./prompt-images.js";
 import type { RunRecorder } from "./recorder.js";
@@ -80,6 +81,7 @@ export interface FroeSessionDependencies {
   runtime: ActionRuntime;
   mcp: McpManager;
   instructions: ProjectInstruction[];
+  skills?: AgentSkill[];
   recorder: RunRecorder;
   approval: SessionApprovalGate;
   adapter?: FroeSessionAdapter;
@@ -145,6 +147,7 @@ class DefaultFroeSession implements FroeSession {
   readonly #runtime: ActionRuntime;
   readonly #mcp: McpManager;
   readonly #instructions: ProjectInstruction[];
+  readonly #skills: AgentSkill[];
   readonly #recorder: RunRecorder;
   readonly #approval: SessionApprovalGate;
   readonly #adapter: FroeSessionAdapter;
@@ -162,6 +165,7 @@ class DefaultFroeSession implements FroeSession {
     this.#runtime = dependencies.runtime;
     this.#mcp = dependencies.mcp;
     this.#instructions = dependencies.instructions;
+    this.#skills = dependencies.skills ?? [];
     this.#recorder = dependencies.recorder;
     this.#approval = dependencies.approval;
     this.#adapter = dependencies.adapter ?? {};
@@ -233,6 +237,7 @@ class DefaultFroeSession implements FroeSession {
         runtime: this.#runtime,
         mcp: this.#mcp,
         instructions: this.#instructions,
+        skills: this.#skills,
         modelName: this.#modelName,
         maxTurns: this.#config.maxTurns,
         signal: controller.signal,
