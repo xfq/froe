@@ -6,7 +6,7 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stderr as output, stdout } from "node:process";
 import type { ReadStream, WriteStream } from "node:tty";
 import { fileURLToPath } from "node:url";
-import { formatActionDetails, formatApprovalPrompt, redactSensitiveText } from "./action-summary.js";
+import { formatApprovalPrompt } from "./action-summary.js";
 import { loadConfig } from "./config.js";
 import { configureFroe } from "./core.js";
 import { runConversation } from "./conversation.js";
@@ -14,7 +14,8 @@ import { DEFAULT_OPENAI_BASE_URL } from "./credentials.js";
 import { openFroeSessionWithConfig } from "./session-composition.js";
 import type { FroeApprovalPrompt, FroeSessionEvent, FroeSessionStatus } from "./session.js";
 import { terminalMessages } from "./terminal-conversation.js";
-import type { ApprovalDecision, McpServerConfig, ReasoningEffort, RunEvent, RunOptions } from "./types.js";
+import { createTerminalRenderer, type TerminalRenderer } from "./terminal-renderer.js";
+import type { ApprovalDecision, McpServerConfig, ReasoningEffort, RunOptions } from "./types.js";
 import { maybeAutoUpdate } from "./updater.js";
 
 const reasoningValues = new Set<ReasoningEffort>(["none", "low", "medium", "high", "xhigh", "max"]);
@@ -59,7 +60,7 @@ async function main(): Promise<void> {
     output.write(`froe: automatic update ${update.phase} failed; continuing with ${packageVersion}.\n`);
   }
   const conversationMode = options.task === undefined;
-  let render: (event: RunEvent) => void = () => undefined;
+  let renderer: TerminalRenderer | undefined;
   const session = await openFroeSessionWithConfig({
     workspace: options.workspace,
     additionalDirectories: options.additionalDirectories,
@@ -79,12 +80,12 @@ async function main(): Promise<void> {
       }
       : {}),
     adapter: {
-      onEvent: (envelope: FroeSessionEvent) => render(envelope.event),
+      onEvent: (envelope: FroeSessionEvent) => renderer?.render(envelope.event),
       requestApproval: requestTerminalApproval,
     },
   });
   const status = session.status();
-  render = createRenderer(options.verbose, status.recordPath, conversationMode);
+  renderer = createTerminalRenderer({ output, verbose: options.verbose, recordPath: status.recordPath, conversationMode });
   for (const failure of status.mcpFailures) output.write(`froe: MCP server ${failure.name} is unavailable: ${failure.message}\n`);
   const controller = new AbortController();
   let interrupted = false;
@@ -103,6 +104,9 @@ async function main(): Promise<void> {
         messages: terminalMessages(input, output, controller.signal),
         imagePaths: options.imagePaths,
         signal: controller.signal,
+        onTaskSubmitted: (turn) => {
+          renderer?.startConversationTurn(turn);
+        },
         onModelSelected: (model) => {
           output.write(`froe conversation · ${model}\n`);
         },
@@ -328,44 +332,6 @@ async function requestTerminalApproval(prompt: FroeApprovalPrompt, signal?: Abor
   }
 }
 
-function createRenderer(verbose: boolean, recordPath: string | undefined, conversationMode: boolean): (event: RunEvent) => void {
-  return (event) => {
-    switch (event.type) {
-      case "run_started":
-        if (!conversationMode) {
-          output.write(`froe · ${event.model}\nworkspace: ${event.workspace}\n`);
-          if (recordPath !== undefined) output.write(`record: ${recordPath}\n`);
-        }
-        break;
-      case "model_text":
-        if (event.text.trim()) output.write(`froe: ${event.text.trim()}\n`);
-        break;
-      case "action_requested":
-        output.write(`→ ${event.action.name}\n`);
-        writeActionDetails(event.action);
-        break;
-      case "approval_requested":
-        output.write(`! approval needed: ${redactSensitiveText(event.reason)}\n`);
-        writeActionDetails(event.action);
-        break;
-      case "action_result":
-        output.write(`${event.result.ok ? "✓" : "✗"} ${event.result.name}${resultSuffix(event.result)}\n`);
-        if (verbose) output.write(`${JSON.stringify(event.result.output, null, 2)}\n`);
-        break;
-      case "context_compacted":
-        output.write(`↻ context compacted (${event.previousItems} → ${event.retainedItems} items)\n`);
-        break;
-      case "usage":
-        if (verbose) output.write(`usage: ${event.inputTokens} input, ${event.outputTokens} output tokens\n`);
-        break;
-      case "run_finished":
-        output.write(`${event.outcome.status}: ${event.outcome.summary}\n`);
-        for (const check of event.outcome.verification) output.write(`  ${check.result}: ${check.description}\n`);
-        break;
-    }
-  };
-}
-
 function printConversationBanner(status: FroeSessionStatus): void {
   output.write(`froe conversation · ${status.config.model}\nworkspace: ${status.workspace}\n`);
   if (status.recordPath !== undefined) output.write(`record: ${status.recordPath}\n`);
@@ -379,20 +345,6 @@ function printMcpServers(status: FroeSessionStatus): void {
   }
   output.write("Active MCP servers:\n");
   for (const server of status.activeMcpServers) output.write(`- ${server.name} (${server.toolCount} tools)\n`);
-}
-
-function writeActionDetails(action: { name: string; arguments: unknown }): void {
-  for (const detail of formatActionDetails(action)) output.write(`  ${detail}\n`);
-}
-
-function resultSuffix(result: { name: string; ok: boolean; output: unknown }): string {
-  if (!result.ok && isRecord(result.output) && typeof result.output.message === "string") return ` — ${result.output.message}`;
-  if (result.name === "run_command" && isRecord(result.output) && typeof result.output.exitCode === "number") return ` (exit ${result.output.exitCode})`;
-  return "";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function stringOption(value: string | boolean | undefined): string | undefined {

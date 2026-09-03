@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { runConversation } from "../src/conversation.js";
+import { runConversation, type ConversationTurn } from "../src/conversation.js";
 import { defaultConfig } from "../src/config.js";
 import type { FroeRunRequest, FroeSession, FroeSessionStatus } from "../src/session.js";
 import type { RunOutcome } from "../src/types.js";
@@ -37,10 +37,14 @@ class RecordingSession implements FroeSession {
 
 test("the terminal conversation adapter sends follow-ups through one core session", async () => {
   const session = new RecordingSession();
+  const turns: ConversationTurn[] = [];
   const outcomes = await runConversation({
     session,
     messages: messages("Implement the feature", "Please add tests too"),
     imagePaths: ["/tmp/screenshot.png"],
+    onTaskSubmitted: (turn) => {
+      turns.push(turn);
+    },
   });
 
   assert.deepEqual(session.requests, [
@@ -54,6 +58,10 @@ test("the terminal conversation adapter sends follow-ups through one core sessio
   assert.deepEqual(outcomes.map((outcome) => outcome.summary), [
     "Handled Implement the feature",
     "Handled Please add tests too",
+  ]);
+  assert.deepEqual(turns, [
+    { number: 1, message: "Implement the feature" },
+    { number: 2, message: "Please add tests too" },
   ]);
 });
 
@@ -93,10 +101,14 @@ test("the terminal conversation adapter reads MCP status without starting a run"
 test("the terminal conversation adapter starts a fresh conversation on reset", async () => {
   const session = new RecordingSession();
   let resets = 0;
+  const turns: ConversationTurn[] = [];
 
   const outcomes = await runConversation({
     session,
     messages: messages("First task", { type: "reset" }, "Second task"),
+    onTaskSubmitted: (turn) => {
+      turns.push(turn);
+    },
     onResetConversation: () => {
       resets += 1;
     },
@@ -108,6 +120,10 @@ test("the terminal conversation adapter starts a fresh conversation on reset", a
     "Handled Second task",
   ]);
   assert.equal(resets, 1);
+  assert.deepEqual(turns, [
+    { number: 1, message: "First task" },
+    { number: 2, message: "Second task" },
+  ]);
 });
 
 async function* messages(...values: Array<string | TerminalMessage>): AsyncGenerator<TerminalMessage> {
