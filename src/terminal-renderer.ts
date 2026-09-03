@@ -30,7 +30,7 @@ export function createTerminalRenderer(options: TerminalRendererOptions): Termin
     for (const line of text.split(/\r?\n/)) options.output.write(`${linePrefix}${line}\n`);
   };
   const writeActionDetails = (action: { name: string; arguments: unknown }): void => {
-    for (const detail of formatActionDetails(action)) writeLines(`${prefix()}  `, detail);
+    for (const detail of formatActionDetails(action)) writeLines(`${prefix()}    `, detail);
   };
   const startProgress = (): void => {
     if (progressActive) return;
@@ -62,7 +62,7 @@ export function createTerminalRenderer(options: TerminalRendererOptions): Termin
   return {
     startConversationTurn(turn): void {
       activeTurn = turn;
-      options.output.write(`\n[${turn.number}] you: ${summarizeMessage(turn.message)}\n[${turn.number}] froe:\n`);
+      options.output.write(`\n[${turn.number}] you: ${summarizeMessage(turn.message)}\n`);
       startProgress();
     },
     render(event): void {
@@ -76,10 +76,14 @@ export function createTerminalRenderer(options: TerminalRendererOptions): Termin
           }
           break;
         case "model_text":
-          if (event.text.trim()) writeLines(`${prefix()}froe: `, event.text.trim());
+          if (event.text.trim()) {
+            options.output.write(`${prefix()}froe:\n`);
+            writeLines(`${prefix()}  `, event.text.trim());
+            options.output.write(`${prefix()}\n`);
+          }
           break;
         case "action_requested":
-          options.output.write(`${prefix()}→ ${event.action.name}\n`);
+          options.output.write(`${prefix()}  · ${event.action.name}\n`);
           writeActionDetails(event.action);
           break;
         case "approval_requested":
@@ -87,8 +91,8 @@ export function createTerminalRenderer(options: TerminalRendererOptions): Termin
           writeActionDetails(event.action);
           break;
         case "action_result":
-          writeLines(prefix(), `${event.result.ok ? "✓" : "✗"} ${event.result.name}${resultSuffix(event.result)}`);
-          if (options.verbose) writeLines(prefix(), JSON.stringify(event.result.output, null, 2));
+          writeLines(`${prefix()}    `, `${event.result.ok ? "ok" : "failed"}: ${event.result.name}${resultSuffix(event.result)}`);
+          if (options.verbose) writeLines(`${prefix()}      `, JSON.stringify(event.result.output, null, 2));
           break;
         case "context_compacted":
           options.output.write(`${prefix()}↻ context compacted (${event.previousItems} → ${event.retainedItems} items)\n`);
