@@ -237,6 +237,7 @@ class DefaultFroeSession implements FroeSession {
         runtime: this.#runtime,
         mcp: this.#mcp,
         instructions: this.#instructions,
+        extraInstructions: this.#config.extraInstructions,
         skills: this.#skills,
         modelName: this.#modelName,
         maxTurns: this.#config.maxTurns,

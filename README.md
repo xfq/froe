@@ -116,6 +116,10 @@ Example user configuration:
   "compactThresholdTokens": 200000,
   "maxTurns": 40,
   "logging": "metadata",
+  "extraInstructions": [
+    "Prefer the smallest change that satisfies the task.",
+    "Run the project's validation commands before finishing."
+  ],
   "limits": {
     "commandTimeoutMs": 120000
   },

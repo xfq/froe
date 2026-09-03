@@ -330,3 +330,40 @@ test("a run formats agent skills into the system prompt", async () => {
 
   assert.equal(outcome.status, "completed");
 });
+
+test("a run appends user-configured instructions to the system prompt", async () => {
+  const root = await mkdtemp(join(tmpdir(), "froe-run-"));
+  const model = new ScriptedModel([(turn) => {
+    assert.match(turn.system, /The user's explicit task outranks user-configured instructions, which outrank recognized project instructions\./);
+    assert.ok(turn.system.indexOf("User-configured instructions:") > turn.system.indexOf("Recognized project instructions"));
+    assert.match(turn.system, /- Prefer the smallest change that satisfies the task\./);
+    assert.match(turn.system, /- Run the project's validation commands before finishing\./);
+    return [{
+      type: "action",
+      action: {
+        callId: "finish",
+        name: "finish",
+        arguments: {
+          outcome: "completed",
+          summary: "Inspected the system prompt.",
+          verification: [{ description: "Prompt contents check", result: "passed" }],
+        },
+      },
+    }];
+  }]);
+
+  const outcome = await runTask({
+    task: "Check the system prompt",
+    model,
+    runtime: await runtime(root),
+    instructions: [{ scope: ".", source: "AGENTS.md", content: "Project-owned guidance." }],
+    extraInstructions: [
+      "Prefer the smallest change that satisfies the task.",
+      "Run the project's validation commands before finishing.",
+    ],
+    modelName: "scripted",
+    maxTurns: 1,
+  });
+
+  assert.equal(outcome.status, "completed");
+});

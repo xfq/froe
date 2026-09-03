@@ -362,6 +362,47 @@ test("workspace configuration cannot control context compaction", async () => {
   }
 });
 
+test("user configuration can add system-prompt instructions", async () => {
+  const root = await workspace();
+  const configRoot = await workspace();
+  await mkdir(join(configRoot, "froe"));
+  await writeFile(join(configRoot, "froe", "config.json"), JSON.stringify({
+    extraInstructions: [
+      "Prefer the smallest change that satisfies the task.",
+      "Run the project's validation commands before finishing.",
+    ],
+  }));
+  const previous = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = configRoot;
+  try {
+    const config = await loadConfig({ workspace: root });
+    assert.deepEqual(config.extraInstructions, [
+      "Prefer the smallest change that satisfies the task.",
+      "Run the project's validation commands before finishing.",
+    ]);
+    assert.deepEqual(defaultConfig.extraInstructions, []);
+  } finally {
+    if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previous;
+  }
+});
+
+test("workspace configuration cannot add system-prompt instructions", async () => {
+  const root = await workspace();
+  await mkdir(join(root, ".froe"));
+  await writeFile(join(root, ".froe", "config.json"), JSON.stringify({
+    extraInstructions: ["A repository-controlled instruction."],
+  }));
+  const previous = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = await workspace();
+  try {
+    await assert.rejects(() => loadConfig({ workspace: root }), /extraInstructions is allowed only in user configuration/);
+  } finally {
+    if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previous;
+  }
+});
+
 test("workspace configuration cannot select an API endpoint", async () => {
   const root = await workspace();
   await mkdir(join(root, ".froe"));

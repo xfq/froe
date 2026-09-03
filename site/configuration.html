@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Reference for Froe configuration files, keys, precedence, and authority boundaries."
+    >
+    <meta name="theme-color" content="#11100d">
+    <title>Configuration reference | Froe</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body class="reference-page">
+    <a class="skip-link" href="#main">Skip to main content</a>
+
+    <header class="site-header">
+      <div class="shell header-inner">
+        <a class="brand" href="./index.html" aria-label="Froe home">
+          <svg class="brand-mark" viewBox="0 0 44 44" aria-hidden="true">
+            <path d="M4 8h24l12 14-12 14H4l12-14L4 8Z"></path>
+            <path d="M4 8 28 36"></path>
+          </svg>
+          <span>froe</span>
+        </a>
+
+        <nav aria-label="Primary">
+          <ul>
+            <li><a href="./index.html">Overview</a></li>
+            <li><a href="./commands.html">Commands</a></li>
+            <li><a href="./configuration.html" aria-current="page">Configuration</a></li>
+            <li><a href="./changelog.html">Changelog</a></li>
+            <li><a href="https://github.com/xfq/froe">GitHub</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <section class="reference-hero" id="top">
+        <div class="shell reference-hero-grid">
+          <div class="reference-hero-copy">
+            <h1>Configuration reference</h1>
+            <!-- <p>
+              Configuration sets the model, run bounds, limits, integrations, and standing instructions behind every Froe run.
+            </p> -->
+            <div class="usage-terminal" aria-label="Default user configuration file">
+              <span>User configuration</span>
+              <code>~/.config/froe/config.json</code>
+            </div>
+          </div>
+
+          <nav class="reference-index" aria-label="On this page">
+            <p>On this page</p>
+            <ol>
+              <li><a href="#files">Configuration files</a></li>
+              <li><a href="#keys">Configuration keys</a></li>
+              <li><a href="#authority">Authority boundaries</a></li>
+            </ol>
+          </nav>
+        </div>
+      </section>
+
+      <div class="shell reference-layout">
+        <aside class="reference-rail" aria-label="Reference sections">
+          <a href="#files">01 <span>Files</span></a>
+          <a href="#keys">02 <span>Keys</span></a>
+          <a href="#authority">03 <span>Authority</span></a>
+        </aside>
+
+        <div class="reference-content">
+          <section class="reference-section" id="files">
+            <div class="reference-heading">
+              <h2>Read configuration from five layers.</h2>
+              <p>
+                Every session merges the layers below from lowest to highest precedence. A later layer overrides earlier values; object and array settings are replaced, not merged field by field.
+              </p>
+            </div>
+
+            <dl class="option-list">
+              <div>
+                <dt><code>Built-in defaults</code></dt>
+                <dd>
+                  The starting values compiled into Froe, such as the default model and 40-turn run bound. User or Workspace configuration may override the keys they are allowed to set.
+                </dd>
+              </div>
+              <div>
+                <dt><code>$XDG_CONFIG_HOME/froe/config.json</code></dt>
+                <dd>
+                  User configuration, or <code>~/.config/froe/config.json</code> when the environment variable is unset. It applies to every Workspace and may set any supported key.
+                </dd>
+              </div>
+              <div>
+                <dt><code>.froe/config.json</code><span>workspace</span></dt>
+                <dd>
+                  Workspace configuration inside the Workspace root. It may set only <code>model</code> and <code>limits</code>; every other key is rejected here.
+                </dd>
+              </div>
+              <div>
+                <dt><code>--config &lt;path&gt;</code></dt>
+                <dd>
+                  An explicit user-controlled JSON file loaded for one invocation. It merges above Workspace configuration and may set any supported key.
+                </dd>
+              </div>
+              <div>
+                <dt><code>Invocation overrides</code></dt>
+                <dd>
+                  CLI flags such as <code>--model</code>, <code>--reasoning</code>, <code>--base-url</code>, <code>--max-turns</code>, and <code>--no-update</code> rank highest. Embedders pass the same values as overrides to <code>openFroeSession</code>.
+                </dd>
+              </div>
+            </dl>
+
+            <div class="release-list">
+              <ul>
+                <li>
+                  Editors may validate a file against the machine-readable
+                  <code>froe.config.schema.json</code> schema by setting
+                  <code>$schema</code> in the file itself.
+                </li>
+                <li>
+                  The schema ships with the npm package and lives in the repository root, alongside this reference.
+                </li>
+              </ul>
+            </div>
+          </section>
+
+          <section class="reference-section" id="keys">
+            <div class="reference-heading">
+              <h2>Set persistent defaults.</h2>
+              <p>
+                Keys marked <code>workspace file</code> may also live in <code>.froe/config.json</code>. All other keys are user configuration only.
+              </p>
+            </div>
+
+            <dl class="option-list">
+              <div>
+                <dt><code>provider</code></dt>
+                <dd>
+                  Must be <code>"openai"</code>; it is the only provider in the current release.
+                </dd>
+              </div>
+              <div>
+                <dt><code>baseURL</code></dt>
+                <dd>
+                  An OpenAI-compatible API endpoint. When absent, Froe uses the OpenAI default or <code>OPENAI_BASE_URL</code>.
+                </dd>
+              </div>
+              <div>
+                <dt><code>autoUpdate</code></dt>
+                <dd>
+                  Automatic update checks for the npm package. Default <code>true</code>; set <code>false</code> or pass <code>--no-update</code> to disable.
+                </dd>
+              </div>
+              <div>
+                <dt><code>model</code><span>workspace file</span></dt>
+                <dd>
+                  The OpenAI-compatible model used for runs. Default <code>gpt-5.6-terra</code>. <code>--model</code> overrides one invocation; <code>/model</code> changes the current conversation without saving configuration.
+                </dd>
+              </div>
+              <div>
+                <dt><code>reasoning</code></dt>
+                <dd>
+                  Reasoning effort: <code>none</code>, <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, or <code>max</code>. Default <code>medium</code>.
+                </dd>
+              </div>
+              <div>
+                <dt><code>compactThresholdTokens</code></dt>
+                <dd>
+                  Token threshold for OpenAI server-side context compaction. Default <code>200000</code>; <code>null</code> disables compaction for endpoints that do not support it.
+                </dd>
+              </div>
+              <div>
+                <dt><code>maxTurns</code></dt>
+                <dd>
+                  Maximum model turns per bounded run, including each message in an interactive conversation. Default <code>40</code>; positive integer.
+                </dd>
+              </div>
+              <div>
+                <dt><code>logging</code></dt>
+                <dd>
+                  Run record verbosity: <code>metadata</code> or <code>full</code>. Default <code>metadata</code>.
+                </dd>
+              </div>
+              <div>
+                <dt><code>limits</code><span>workspace file</span></dt>
+                <dd>
+                  Positive per-action limits: <code>readLines</code> <code>400</code>, <code>readBytes</code> <code>131072</code>, <code>searchResults</code> <code>200</code>, <code>commandOutputBytes</code> <code>131072</code>, and <code>commandTimeoutMs</code> <code>120000</code>. Workspace configuration may set any subset.
+                </dd>
+              </div>
+              <div>
+                <dt><code>commandEnv</code></dt>
+                <dd>
+                  Environment variable names passed to spawned commands, such as <code>TAVILY_API_KEY</code>. Default empty; workspace configuration cannot grant command environment access.
+                </dd>
+              </div>
+              <div>
+                <dt><code>extraInstructions</code></dt>
+                <dd>
+                  Standing instructions appended to every run's system prompt as non-empty strings. They outrank recognized <code>AGENTS.md</code> or <code>CLAUDE.md</code> project instructions but never the user's explicit task. Default empty; user configuration only.
+                </dd>
+              </div>
+              <div>
+                <dt><code>mcpServers</code></dt>
+                <dd>
+                  MCP servers contributing tools and context, keyed by name. Each entry is a stdio server with <code>command</code> and optional <code>args</code>, or a remote server with <code>url</code>. Default empty; <code>froe mcp add</code> writes entries here.
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          <section class="reference-section" id="authority">
+            <div class="reference-heading">
+              <h2>A Workspace cannot set most keys.</h2>
+              <p>
+                A Workspace is code Froe runs on, so its configuration is treated as project-owned content rather than trusted user choice.
+              </p>
+            </div>
+
+            <div class="release-list">
+              <h3>Configuration authority</h3>
+              <ul>
+                <li>
+                  <code>.froe/config.json</code> may contain only <code>model</code> and <code>limits</code>.
+                </li>
+                <li>
+                  An explicit <code>--config</code> file is user-controlled and holds the same authority as user configuration, regardless of where it is stored.
+                </li>
+                <li>
+                  Project-owned guidance belongs in recognized instruction files such as <code>AGENTS.md</code>; repository content is data, not instructions.
+                </li>
+              </ul>
+            </div>
+
+            <div class="release-list">
+              <h3>Credentials and environment</h3>
+              <ul>
+                <li>
+                  Connection and search keys are never read from Workspace configuration or <code>.env</code> files. They are stored in an owner-only credentials file or supplied through the environment.
+                </li>
+                <li>
+                  Spawned commands receive a small base environment (<code>PATH</code>, home, temp, and locale variables) plus names explicitly listed in <code>commandEnv</code>. Provider keys such as <code>OPENAI_API_KEY</code> and <code>TAVILY_API_KEY</code> are never forwarded.
+                </li>
+              </ul>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <div class="shell footer-inner">
+        <div class="footer-brand">
+          <svg class="brand-mark" viewBox="0 0 44 44" aria-hidden="true">
+            <path d="M4 8h24l12 14-12 14H4l12-14L4 8Z"></path>
+            <path d="M4 8 28 36"></path>
+          </svg>
+        </div>
+        <div class="footer-links">
+          <a href="./index.html">Overview</a>
+          <a href="./commands.html">Commands</a>
+          <a href="./configuration.html">Configuration</a>
+          <a href="./changelog.html">Changelog</a>
+          <a href="https://github.com/xfq/froe">GitHub</a>
+          <a href="https://github.com/xfq/froe-desktop">Froe Desktop</a>
+          <a href="https://github.com/xfq/froe/blob/main/README.md">Documentation</a>
+          <a href="https://github.com/xfq/froe/blob/main/LICENSE">Apache-2.0</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

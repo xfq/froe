@@ -23,6 +23,7 @@ export const defaultConfig: FroeConfig = {
     commandTimeoutMs: 120_000,
   },
   commandEnv: [],
+  extraInstructions: [],
   mcpServers: {},
 };
 
@@ -89,6 +90,7 @@ export function mergeConfig(
     ...base,
     limits: { ...base.limits },
     commandEnv: [...base.commandEnv],
+    extraInstructions: [...base.extraInstructions],
     mcpServers: { ...base.mcpServers },
   };
 
@@ -107,6 +109,7 @@ export function mergeConfig(
     if ("logging" in layer && layer.logging !== undefined) merged.logging = layer.logging;
     if ("provider" in layer && layer.provider !== undefined) merged.provider = layer.provider;
     if ("commandEnv" in layer && layer.commandEnv !== undefined) merged.commandEnv = [...layer.commandEnv];
+    if ("extraInstructions" in layer && layer.extraInstructions !== undefined) merged.extraInstructions = [...layer.extraInstructions];
     if ("mcpServers" in layer && layer.mcpServers !== undefined) merged.mcpServers = { ...merged.mcpServers, ...layer.mcpServers };
     if ("limits" in layer && layer.limits !== undefined) Object.assign(merged.limits, layer.limits);
   }
@@ -137,9 +140,9 @@ async function readConfig(path: string, scope: "user" | "workspace"): Promise<Co
 
 function parseLayer(value: unknown, path: string, scope: "user" | "workspace"): ConfigLayer {
   const object = objectValue(value, path);
-  assertOnlyKeys(object, ["$schema", "provider", "baseURL", "autoUpdate", "model", "reasoning", "compactThresholdTokens", "maxTurns", "logging", "limits", "commandEnv", "mcpServers"], path);
+  assertOnlyKeys(object, ["$schema", "provider", "baseURL", "autoUpdate", "model", "reasoning", "compactThresholdTokens", "maxTurns", "logging", "limits", "commandEnv", "extraInstructions", "mcpServers"], path);
   if (scope === "workspace") {
-    const restricted = ["provider", "baseURL", "autoUpdate", "reasoning", "compactThresholdTokens", "maxTurns", "logging", "commandEnv", "mcpServers"].find((key) => object[key] !== undefined);
+    const restricted = ["provider", "baseURL", "autoUpdate", "reasoning", "compactThresholdTokens", "maxTurns", "logging", "commandEnv", "extraInstructions", "mcpServers"].find((key) => object[key] !== undefined);
     if (restricted !== undefined) throw new Error(`${path}.${restricted} is allowed only in user configuration`);
   }
   const layer: ConfigLayer = {};
@@ -171,6 +174,10 @@ function parseLayer(value: unknown, path: string, scope: "user" | "workspace"): 
   if (object.commandEnv !== undefined) {
     if (scope === "workspace") throw new Error(`${path}.commandEnv is allowed only in user configuration`);
     layer.commandEnv = stringArray(object.commandEnv, `${path}.commandEnv`);
+  }
+  if (object.extraInstructions !== undefined) {
+    if (scope === "workspace") throw new Error(`${path}.extraInstructions is allowed only in user configuration`);
+    layer.extraInstructions = stringArray(object.extraInstructions, `${path}.extraInstructions`);
   }
   if (object.mcpServers !== undefined) {
     if (scope === "workspace") throw new Error(`${path}.mcpServers is allowed only in user configuration`);

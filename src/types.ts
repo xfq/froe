@@ -36,6 +36,8 @@ export interface FroeConfig {
   logging: LogMode;
   limits: Limits;
   commandEnv: string[];
+  /** Standing instructions appended to every run's system prompt. User configuration only. */
+  extraInstructions: string[];
   mcpServers: Record<string, McpServerConfig>;
 }
 

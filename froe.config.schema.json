@@ -38,6 +38,12 @@
       "items": { "type": "string" },
       "uniqueItems": true
     },
+    "extraInstructions": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "Standing instructions appended to every run's system prompt. Allowed only in user configuration; project-owned guidance belongs in AGENTS.md or CLAUDE.md."
+    },
     "mcpServers": {
       "type": "object",
       "description": "User-controlled stdio or remote Streamable HTTP MCP servers.",
