@@ -23,6 +23,7 @@ test("a conversation turn keeps its message and all response output under one nu
   assert.equal(rendered, [
     "\n[4] you: Inspect the session state\n",
     "[4] froe:\n",
+    "[4] \n",
     "[4] froe: I will inspect it.\n",
     "[4] froe: Then I will report back.\n",
     "[4] → read_file\n",
@@ -33,5 +34,26 @@ test("a conversation turn keeps its message and all response output under one nu
     "[4] }\n",
     "[4] completed: Session state inspected.\n",
     "[4]   passed: Read the session module\n",
+  ].join(""));
+});
+
+test("an interactive terminal clears the waiting indicator when Froe responds", () => {
+  const output = new PassThrough() as PassThrough & { isTTY: boolean };
+  output.isTTY = true;
+  let rendered = "";
+  output.on("data", (chunk: Buffer) => {
+    rendered += chunk.toString();
+  });
+  const renderer = createTerminalRenderer({ output, verbose: false, recordPath: undefined, conversationMode: true });
+
+  renderer.startConversationTurn({ number: 7, message: "Check the status" });
+  renderer.render({ type: "model_text", text: "The status is healthy." });
+
+  assert.equal(rendered, [
+    "\n[7] you: Check the status\n",
+    "[7] froe:\n",
+    "\r[7] ⠋ ",
+    "\r\u001B[2K",
+    "[7] froe: The status is healthy.\n",
   ].join(""));
 });
