@@ -39,6 +39,8 @@ function metadataEvent(event: RunEvent): object {
       return event;
     case "model_text":
       return { type: event.type, characters: event.text.length };
+    case "image_generated":
+      return event;
     case "action_requested":
       return { type: event.type, callId: event.action.callId, name: event.action.name, summary: formatActionDetails(event.action) };
     case "action_result":

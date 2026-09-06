@@ -3,7 +3,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { randomUUID } from "node:crypto";
 import { CommandSandboxError, type CommandSandbox, type SandboxException, type SandboxedCommandResult } from "./command-sandbox.js";
 import { TavilyWebSearch, TavilyWebSearchError, type WebSearch } from "./tavily-web-search.js";
-import type { ActionName, ActionRequest, ActionResult, ApprovalRequest, FroeConfig, JsonValue, ToolDefinition } from "./types.js";
+import type { ActionName, ActionRequest, ActionResult, ApprovalRequest, FroeConfig, GeneratedImage, GeneratedImageMediaType, JsonValue, ToolDefinition } from "./types.js";
 
 export type { ApprovalRequest } from "./types.js";
 
@@ -157,6 +157,24 @@ export class ActionRuntime {
 
   get additionalDirectories(): readonly string[] {
     return this.#additionalDirectories;
+  }
+
+  /**
+   * Persists a provider-generated image at a predictable, non-overwriting
+   * Workspace location. This is deliberately not model-addressable: the
+   * user-controlled image-generation settings authorize the result, while Froe
+   * chooses the destination to preserve filesystem confinement.
+   */
+  async saveGeneratedImage(image: GeneratedImage): Promise<{ path: string; mediaType: GeneratedImageMediaType; bytes: number }> {
+    const directoryInput = "generated-images";
+    const directory = await this.resolveCandidate(directoryInput);
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    const verifiedDirectory = await this.resolveExisting(directoryInput);
+    if (!(await stat(verifiedDirectory)).isDirectory()) throw new ActionError("not_directory", `${directoryInput} is not a directory`);
+    const extension = generatedImageExtension(image.mediaType);
+    const path = await this.resolveCandidate(join(directoryInput, `froe-${randomUUID()}.${extension}`));
+    await writeFile(path, image.data, { flag: "wx", mode: 0o600 });
+    return { path: this.toRelative(path), mediaType: image.mediaType, bytes: image.data.byteLength };
   }
 
   async execute(request: ActionRequest, signal?: AbortSignal): Promise<ActionResult> {
@@ -673,6 +691,12 @@ function sandboxExceptionOutput(exception: SandboxException): JsonValue {
   return exception.type === "file-write"
     ? { type: exception.type, path: exception.path }
     : { type: exception.type, operation: exception.operation, target: exception.target };
+}
+
+function generatedImageExtension(mediaType: GeneratedImageMediaType): "jpeg" | "png" | "webp" {
+  if (mediaType === "image/jpeg") return "jpeg";
+  if (mediaType === "image/webp") return "webp";
+  return "png";
 }
 
 function countOccurrences(text: string, needle: string): number {

@@ -82,6 +82,9 @@ export function createTerminalRenderer(options: TerminalRendererOptions): Termin
             options.output.write(`${prefix()}\n`);
           }
           break;
+        case "image_generated":
+          options.output.write(`${prefix()}image saved: ${event.path} (${event.mediaType}, ${event.bytes} bytes)\n`);
+          break;
         case "action_requested":
           options.output.write(`${prefix()}  · ${event.action.name}\n`);
           writeActionDetails(event.action);

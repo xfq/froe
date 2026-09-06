@@ -15,7 +15,7 @@ import type {
   RunOutcome,
 } from "./types.js";
 
-export const FROE_CORE_INTERFACE_VERSION = 1 as const;
+export const FROE_CORE_INTERFACE_VERSION = 2 as const;
 
 export type ApprovalMode = "prompt" | "auto_non_destructive";
 
@@ -240,6 +240,7 @@ class DefaultFroeSession implements FroeSession {
         extraInstructions: this.#config.extraInstructions,
         skills: this.#skills,
         modelName: this.#modelName,
+        imageGenerationEnabled: this.#model.imageGenerationAvailable?.() ?? this.#config.imageGeneration.enabled,
         maxTurns: this.#config.maxTurns,
         signal: controller.signal,
         emit,

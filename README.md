@@ -143,7 +143,27 @@ OPENAI_API_KEY="..." OPENAI_BASE_URL="https://api.example.com/v1" \
   froe --model "provider-model-id" "Inspect this repository"
 ```
 
-The provider must support the OpenAI Responses API, including function calling. OpenAI server-side context compaction starts at 200,000 tokens by default. Set `compactThresholdTokens` to a positive integer in user configuration to change the threshold, or to `null` for a compatible endpoint that does not support `context_management`. Set `autoUpdate` to `false` in user configuration to disable automatic updates. Workspace configuration may set only `model` and `limits`; it cannot select an API endpoint, configure MCP, control compaction or updates, pass environment variables, or weaken approvals. Setting `OPENAI_API_KEY` bypasses the saved connection; pair it with `OPENAI_BASE_URL` for a compatible endpoint, or froe uses the default OpenAI base URL. `--base-url` and user configuration override either Base URL. Credentials are never read from workspace configuration or `.env` files. See the [OpenAI compaction guide](https://developers.openai.com/api/docs/guides/compaction).
+The provider must support the OpenAI Responses API, including function calling. OpenAI server-side context compaction starts at 200,000 tokens by default. Set `compactThresholdTokens` to a positive integer in user configuration to change the threshold, or to `null` for a compatible endpoint that does not support `context_management`. Set `autoUpdate` to `false` in user configuration to disable automatic updates. Workspace configuration may set only `model` and `limits`; it cannot select an API endpoint, configure image generation or MCP, control compaction or updates, pass environment variables, or weaken approvals. Setting `OPENAI_API_KEY` bypasses the saved connection; pair it with `OPENAI_BASE_URL` for a compatible endpoint, or froe uses the default OpenAI base URL. `--base-url` and user configuration override either Base URL. Credentials are never read from workspace configuration or `.env` files. See the [OpenAI compaction guide](https://developers.openai.com/api/docs/guides/compaction).
+
+### Image generation
+
+Froe enables the OpenAI Responses API's built-in image-generation tool by default. It only instructs the model to use it for a current user request to create or edit an image; repository content cannot enable or invoke it. If an OpenAI-compatible endpoint reports that its current model does not support the tool, Froe retries that request without it and keeps it disabled for that model for the rest of the session.
+
+```json
+{
+  "imageGeneration": {
+    "model": "gpt-image-2",
+    "size": "auto",
+    "quality": "auto",
+    "background": "auto",
+    "outputFormat": "png"
+  }
+}
+```
+
+Set `"enabled": false` in this user-controlled configuration to opt out. Image generation remains unavailable to workspace configuration.
+
+The provider returns each generated image as Base64 data. Froe writes it with a new, non-overwriting filename under `generated-images/` in the Workspace and prints the relative path, MIME type, and byte count. It does not store image bytes or the provider's image-call ID in run records or persistent conversation history. To edit a generated image in a later run, pass its saved file with `--image`. `outputFormat` may be `png`, `webp`, or `jpeg`; transparent backgrounds require `png` or `webp`, and OpenAI's `gpt-image-2` does not support transparent backgrounds. See the [OpenAI image-generation guide](https://developers.openai.com/api/docs/guides/image-generation) for the current model and size constraints.
 
 ## MCP servers
 
@@ -169,7 +189,7 @@ froe can read and search the Workspace, apply exact text patches, and run ordina
 
 An MCP server is explicitly selected in user configuration, so it is outside the local action sandbox and approval boundary. Add only servers and remote URLs you trust: their tools and responses become model context, and a remote server receives each MCP request. Froe starts local servers without a shell and gives each one a fresh temporary home, cache, and minimal environment.
 
-froe only edits UTF-8 text files inside the Workspace or directories explicitly passed through `--add-dir`. It rejects symbolic links, undeclared paths, binary data, mode changes, and renames. Existing Git changes are allowed; froe never commits, resets, or rolls them back.
+froe only edits UTF-8 text files inside the Workspace or directories explicitly passed through `--add-dir`. The sole binary-write exception is a new image generated through the user-enabled OpenAI image tool: Froe writes it beneath `generated-images/` in the Workspace, rejects a symlinked output directory, and never overwrites an existing image. It rejects symbolic links, undeclared paths, binary data, mode changes, and renames for ordinary file actions. Existing Git changes are allowed; froe never commits, resets, or rolls them back.
 
 ## Observability and data
 
@@ -177,7 +197,7 @@ Each CLI invocation writes a JSONL record to `$XDG_STATE_HOME/froe/runs` or `~/.
 
 Automatic update checks store only their last-check timestamp in `$XDG_STATE_HOME/froe/update.json`, or `~/.local/state/froe/update.json` by default.
 
-Interactive conversations keep one resumable continuation per Workspace in `$XDG_STATE_HOME/froe/conversations/<workspace-hash>.json`, or `~/.local/state/froe/conversations/<workspace-hash>.json` by default. The file is owner-only and outside the Workspace, and it stores the same continuation items the model already saw: assistant text, tool calls and their source-bearing results, and compaction checkpoints. Attached image bytes are stripped. Froe loads it when an interactive session starts and saves it after each completed run; `/new` deletes it and resets the in-memory context. A missing, unreadable, or foreign history file starts a fresh conversation, and a failed save never changes a completed run's reported outcome.
+Interactive conversations keep one resumable continuation per Workspace in `$XDG_STATE_HOME/froe/conversations/<workspace-hash>.json`, or `~/.local/state/froe/conversations/<workspace-hash>.json` by default. The file is owner-only and outside the Workspace, and it stores the same continuation items the model already saw: assistant text, tool calls and their source-bearing results, and compaction checkpoints. Attached and generated-image bytes and image-generation call IDs are omitted because they cannot be replayed with Froe's `store: false` Responses requests. Froe loads it when an interactive session starts and saves it after each completed run; `/new` deletes it and resets the in-memory context. A missing, unreadable, or foreign history file starts a fresh conversation, and a failed save never changes a completed run's reported outcome.
 
 The OpenAI adapter sends `store: false` and retains the current session's continuation state in memory. When server-side compaction returns a checkpoint, froe discards the older in-memory continuation and records a safe `context_compacted` event containing only item counts and the configured threshold. The opaque checkpoint is never copied into the run record. See [OpenAI's data controls documentation](https://developers.openai.com/api/docs/guides/your-data#default-usage-policies-by-endpoint) for the distinction between response storage and API abuse-monitoring retention.
 
@@ -210,7 +230,7 @@ try {
 }
 ```
 
-The adapter receives versioned, ordered event envelopes and may collect only the approval decisions offered by Froe core. If no approval adapter is present, approval-required actions fail closed. `session.status()` returns serializable Workspace, effective configuration, record path, MCP status, and active-run state. A session accepts only one run at a time, preserves provider continuation across sequential runs, and cancels its active run before closing.
+The adapter receives versioned, ordered event envelopes and may collect only the approval decisions offered by Froe core. An `image_generated` event includes the generated file's Workspace-relative path, MIME type, and byte count, never image bytes. If no approval adapter is present, approval-required actions fail closed. `session.status()` returns serializable Workspace, effective configuration, record path, MCP status, and active-run state. A session accepts only one run at a time, preserves provider continuation across sequential runs, and cancels its active run before closing.
 
 Graphical and other presentation adapters should use the exported `summarizeAction` and `redactSensitiveText` helpers when displaying action details or approval reasons. The summaries omit source and search contents and redact common credential-shaped values. Their output is plain text, not sanitized HTML.
 

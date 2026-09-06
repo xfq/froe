@@ -9,7 +9,7 @@ import type { TerminalMessage } from "../src/terminal-conversation.js";
 class RecordingSession implements FroeSession {
   readonly requests: FroeRunRequest[] = [];
   readonly #status: FroeSessionStatus = {
-    interfaceVersion: 1,
+    interfaceVersion: 2,
     sessionId: "test-session",
     workspace: "/workspace",
     additionalDirectories: [],

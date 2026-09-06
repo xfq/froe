@@ -104,6 +104,32 @@ test("workspace escapes and symlinks are rejected", async () => {
   assert.deepEqual(linked.output, { code: "symlink_forbidden", message: "Path contains a symbolic link: escape.txt" });
 });
 
+test("generated images are stored in a unique, workspace-confined location", async () => {
+  const root = await workspace();
+  const instance = await runtime(root);
+
+  const first = await instance.saveGeneratedImage({ data: Uint8Array.of(1, 2, 3), mediaType: "image/png" });
+  const second = await instance.saveGeneratedImage({ data: Uint8Array.of(4, 5), mediaType: "image/png" });
+
+  assert.match(first.path, /^generated-images\/froe-[0-9a-f-]+\.png$/);
+  assert.match(second.path, /^generated-images\/froe-[0-9a-f-]+\.png$/);
+  assert.notEqual(first.path, second.path);
+  assert.deepEqual(await readFile(join(root, first.path)), Buffer.from([1, 2, 3]));
+  assert.deepEqual(await readFile(join(root, second.path)), Buffer.from([4, 5]));
+  assert.deepEqual(first, { path: first.path, mediaType: "image/png", bytes: 3 });
+});
+
+test("generated images reject a symlinked output directory", async () => {
+  const root = await workspace();
+  const outside = await workspace();
+  await symlink(outside, join(root, "generated-images"));
+
+  await assert.rejects(
+    async () => (await runtime(root)).saveGeneratedImage({ data: Uint8Array.of(1), mediaType: "image/png" }),
+    /Path contains a symbolic link: generated-images/,
+  );
+});
+
 test("additional directories allow absolute file paths and command working directories", async () => {
   const root = await workspace();
   const additionalDirectory = await realpath(await workspace());
@@ -311,6 +337,46 @@ test("user configuration can disable context compaction", async () => {
   try {
     const config = await loadConfig({ workspace: root });
     assert.equal(config.compactThresholdTokens, null);
+  } finally {
+    if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previous;
+  }
+});
+
+test("user configuration can customize image generation", async () => {
+  const root = await workspace();
+  const configRoot = await workspace();
+  await mkdir(join(configRoot, "froe"));
+  await writeFile(join(configRoot, "froe", "config.json"), JSON.stringify({
+    imageGeneration: { enabled: true, model: "gpt-image-1.5", size: "1536x1024", quality: "high", outputFormat: "webp" },
+  }));
+  const previous = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = configRoot;
+  try {
+    const config = await loadConfig({ workspace: root });
+    assert.deepEqual(config.imageGeneration, {
+      enabled: true,
+      model: "gpt-image-1.5",
+      size: "1536x1024",
+      quality: "high",
+      background: "auto",
+      outputFormat: "webp",
+    });
+    assert.equal(defaultConfig.imageGeneration.enabled, true);
+  } finally {
+    if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previous;
+  }
+});
+
+test("workspace configuration cannot control image generation", async () => {
+  const root = await workspace();
+  await mkdir(join(root, ".froe"));
+  await writeFile(join(root, ".froe", "config.json"), JSON.stringify({ imageGeneration: { enabled: true } }));
+  const previous = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = await workspace();
+  try {
+    await assert.rejects(() => loadConfig({ workspace: root }), /imageGeneration is allowed only in user configuration/);
   } finally {
     if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
     else process.env.XDG_CONFIG_HOME = previous;

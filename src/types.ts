@@ -5,6 +5,22 @@ export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh" | "ma
 
 export type LogMode = "metadata" | "full";
 
+export type ImageGenerationBackground = "auto" | "opaque" | "transparent";
+
+export type ImageGenerationOutputFormat = "jpeg" | "png" | "webp";
+
+export type ImageGenerationQuality = "auto" | "low" | "medium" | "high";
+
+/** User-selected settings for OpenAI's built-in image generation tool. */
+export interface ImageGenerationConfig {
+  enabled: boolean;
+  model: string;
+  size: string;
+  quality: ImageGenerationQuality;
+  background: ImageGenerationBackground;
+  outputFormat: ImageGenerationOutputFormat;
+}
+
 export interface Limits {
   readLines: number;
   readBytes: number;
@@ -31,6 +47,7 @@ export interface FroeConfig {
   autoUpdate: boolean;
   model: string;
   reasoning: ReasoningEffort;
+  imageGeneration: ImageGenerationConfig;
   compactThresholdTokens: number | null;
   maxTurns: number;
   logging: LogMode;
@@ -54,9 +71,17 @@ export interface RunOptions {
 
 export type ImageMediaType = "image/gif" | "image/jpeg" | "image/png" | "image/webp";
 
+export type GeneratedImageMediaType = Exclude<ImageMediaType, "image/gif">;
+
 export interface PromptImage {
   data: Uint8Array;
   mediaType: ImageMediaType;
+}
+
+/** A generated image returned by a provider before Froe persists it. */
+export interface GeneratedImage {
+  data: Uint8Array;
+  mediaType: GeneratedImageMediaType;
 }
 
 export interface ToolDefinition {
@@ -102,6 +127,7 @@ export interface ApprovalRequest {
 export type ModelEvent =
   | { type: "text"; text: string }
   | { type: "action"; action: ActionRequest }
+  | { type: "image_generated"; image: GeneratedImage }
   | { type: "context_compacted"; previousItems: number; retainedItems: number; thresholdTokens: number | null }
   | { type: "usage"; inputTokens: number; outputTokens: number }
   | { type: "completed" };
@@ -116,6 +142,8 @@ export interface ModelTurn {
 
 export interface ModelProvider {
   readonly name: string;
+  /** Whether the current provider model can use image generation, if known. */
+  imageGenerationAvailable?(): boolean;
   recordActionResults(results: ActionResult[]): void;
   resetContinuation?(): void;
   turn(input: ModelTurn): AsyncIterable<ModelEvent>;
@@ -138,6 +166,7 @@ export interface RunOutcome {
 export type RunEvent =
   | { type: "run_started"; workspace: string; model: string }
   | { type: "model_text"; text: string }
+  | { type: "image_generated"; path: string; mediaType: GeneratedImageMediaType; bytes: number }
   | { type: "action_requested"; action: ActionRequest }
   | { type: "action_result"; result: ActionResult }
   | {

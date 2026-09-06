@@ -265,6 +265,170 @@ test("the OpenAI adapter sends each attached image as input_image content", asyn
   }
 });
 
+test("the OpenAI adapter enables the Responses image-generation tool and decodes its result", async () => {
+  let received: Record<string, unknown> | undefined;
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    received = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(responseWithImageGenerationCall("AQID")));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Expected a TCP server address");
+    const provider = new OpenAIProvider({
+      ...defaultConfig,
+      imageGeneration: { ...defaultConfig.imageGeneration, enabled: true, model: "gpt-image-1.5", size: "1536x1024", quality: "high", outputFormat: "webp" },
+    }, { apiKey: "test-key", baseURL: `http://127.0.0.1:${address.port}/v1` });
+
+    const events = await collect(provider.turn({ system: "test system", user: "Create an image", tools: [] }));
+
+    assert.deepEqual(received?.tools, [{
+      type: "image_generation",
+      model: "gpt-image-1.5",
+      size: "1536x1024",
+      quality: "high",
+      background: "auto",
+      output_format: "webp",
+    }]);
+    assert.deepEqual(events.find((event) => event.type === "image_generated"), {
+      type: "image_generated",
+      image: { data: Uint8Array.of(1, 2, 3), mediaType: "image/webp" },
+    });
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("the OpenAI adapter does not replay image-generation calls when Responses are not stored", async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+    requests.push(payload);
+    const imageCall = Array.isArray(payload.input)
+      ? payload.input.find((item): item is Record<string, unknown> => item !== null && typeof item === "object" && (item as Record<string, unknown>).type === "image_generation_call")
+      : undefined;
+    if (imageCall !== undefined) {
+      response.writeHead(400, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        error: {
+          message: `Item with id '${String(imageCall.id)}' not found. Items are not persisted when store is set to false. Try again with store set to true, or remove this item from your input.`,
+        },
+      }));
+      return;
+    }
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(requests.length === 1
+      ? responseWithImageGenerationCall("AQID", "ig_0e4cb28c9d68a685016a9cb00d9b4487d2b5271dc63ea716a8")
+      : responseWithMessage("done")));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Expected a TCP server address");
+    const provider = new OpenAIProvider(defaultConfig, { apiKey: "test-key", baseURL: `http://127.0.0.1:${address.port}/v1` });
+
+    await collect(provider.turn({ system: "test system", user: "Create an image", tools: [] }));
+    const events = await collect(provider.turn({ system: "test system", tools: [] }));
+
+    assert.deepEqual(events[0], { type: "text", text: "done" });
+    assert.equal(requests.length, 2);
+    assert.equal((requests[1]?.input as Array<Record<string, unknown>>).some((item) => item.type === "image_generation_call"), false);
+
+    const resumed = new OpenAIProvider(defaultConfig, {
+      apiKey: "test-key",
+      baseURL: `http://127.0.0.1:${address.port}/v1`,
+      history: [{
+        type: "image_generation_call",
+        id: "ig_0e4cb28c9d68a685016a9cb00d9b4487d2b5271dc63ea716a8",
+        result: "AQID",
+        status: "completed",
+      }] as unknown as ResponseInputItem[],
+    });
+    await collect(resumed.turn({ system: "test system", user: "Continue", tools: [] }));
+
+    assert.equal(requests.length, 3);
+    assert.equal((requests[2]?.input as Array<Record<string, unknown>>).some((item) => item.type === "image_generation_call"), false);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("the OpenAI adapter ignores unsolicited generated-image output when the tool is disabled", async () => {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(responseWithImageGenerationCall("AQID")));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Expected a TCP server address");
+    const provider = new OpenAIProvider({
+      ...defaultConfig,
+      imageGeneration: { ...defaultConfig.imageGeneration, enabled: false },
+    }, { apiKey: "test-key", baseURL: `http://127.0.0.1:${address.port}/v1` });
+
+    const events = await collect(provider.turn({ system: "test system", user: "Inspect", tools: [] }));
+
+    assert.equal(events.some((event) => event.type === "image_generated"), false);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
+test("the OpenAI adapter retries without image generation after a model rejects that tool", async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>);
+    if (requests.length === 1) {
+      response.writeHead(400, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        error: {
+          message: "The image_generation tool is not supported by model legacy-model.",
+          type: "invalid_request_error",
+          code: "unsupported_tool",
+        },
+      }));
+      return;
+    }
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(responseWithMessage("done")));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Expected a TCP server address");
+    const provider = new OpenAIProvider({ ...defaultConfig, model: "legacy-model" }, {
+      apiKey: "test-key",
+      baseURL: `http://127.0.0.1:${address.port}/v1`,
+    });
+
+    const events = await collect(provider.turn({ system: "test system", user: "Inspect", tools: [] }));
+
+    assert.deepEqual(events[0], { type: "text", text: "done" });
+    assert.equal(provider.imageGenerationAvailable(), false);
+    assert.deepEqual((requests[0]?.tools as Array<Record<string, unknown>>)[0]?.type, "image_generation");
+    assert.deepEqual(requests[1]?.tools, []);
+    assert.match(requests[1]?.instructions as string, /Image generation is unavailable/);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
 test("the OpenAI adapter resumes from persisted continuation items", async () => {
   const requests: Array<Record<string, unknown>> = [];
   const server = createServer(async (request, response) => {
@@ -346,6 +510,33 @@ test("exported continuation history is JSON-safe and omits attached images", asy
   }
 });
 
+test("exported continuation history omits generated-image calls", async () => {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(responseWithImageGenerationCall("AQID")));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Expected a TCP server address");
+    const provider = new OpenAIProvider({
+      ...defaultConfig,
+      imageGeneration: { ...defaultConfig.imageGeneration, enabled: true },
+    }, { apiKey: "test-key", baseURL: `http://127.0.0.1:${address.port}/v1` });
+
+    await collect(provider.turn({ system: "test system", user: "Create an image", tools: [] }));
+
+    const exported = provider.exportHistory();
+    const serialized = JSON.stringify(exported);
+    assert.doesNotMatch(serialized, /AQID/);
+    assert.equal(exported.some((item) => (item as Record<string, unknown>).type === "image_generation_call"), false);
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
+});
+
 test("resetContinuation drops the in-memory continuation history", async () => {
   const requests: Array<Record<string, unknown>> = [];
   const server = createServer(async (request, response) => {
@@ -415,6 +606,17 @@ function responseWithMessage(text: string): object {
     created_at: 0,
     status: "completed",
     output: [{ type: "message", id: "msg_1", role: "assistant", status: "completed", content: [{ type: "output_text", text, annotations: [] }] }],
+    usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+  };
+}
+
+function responseWithImageGenerationCall(result: string, id = "img_1"): object {
+  return {
+    id: "resp_image",
+    object: "response",
+    created_at: 0,
+    status: "completed",
+    output: [{ type: "image_generation_call", id, result, status: "completed", action: "generate", size: "1122x1402" }],
     usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
   };
 }

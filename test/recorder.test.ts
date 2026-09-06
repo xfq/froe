@@ -67,3 +67,29 @@ test("metadata run records omit Tavily queries and source excerpts", async () =>
     else process.env.XDG_STATE_HOME = previous;
   }
 });
+
+test("metadata run records retain generated-image metadata without binary data", async () => {
+  const stateRoot = await mkdtemp(join(tmpdir(), "froe-recorder-"));
+  const previous = process.env.XDG_STATE_HOME;
+  process.env.XDG_STATE_HOME = stateRoot;
+  try {
+    const recorder = await RunRecorder.create("metadata", false);
+    await recorder.record({
+      type: "image_generated",
+      path: "generated-images/froe-example.png",
+      mediaType: "image/png",
+      bytes: 42,
+    });
+
+    const record = JSON.parse(await readFile(recorder.path as string, "utf8")) as { event: unknown };
+    assert.deepEqual(record.event, {
+      type: "image_generated",
+      path: "generated-images/froe-example.png",
+      mediaType: "image/png",
+      bytes: 42,
+    });
+  } finally {
+    if (previous === undefined) delete process.env.XDG_STATE_HOME;
+    else process.env.XDG_STATE_HOME = previous;
+  }
+});

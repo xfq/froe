@@ -2,16 +2,40 @@ import { randomUUID } from "node:crypto";
 import { access, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type { FroeConfig, JsonValue, Limits, LogMode, McpRemoteServerConfig, McpServerConfig, McpStdioServerConfig, ReasoningEffort } from "./types.js";
+import type {
+  FroeConfig,
+  ImageGenerationBackground,
+  ImageGenerationConfig,
+  ImageGenerationOutputFormat,
+  ImageGenerationQuality,
+  JsonValue,
+  Limits,
+  LogMode,
+  McpRemoteServerConfig,
+  McpServerConfig,
+  McpStdioServerConfig,
+  ReasoningEffort,
+} from "./types.js";
 
 const reasoningValues = new Set<ReasoningEffort>(["none", "low", "medium", "high", "xhigh", "max"]);
 const logValues = new Set<LogMode>(["metadata", "full"]);
+const imageGenerationBackgroundValues = new Set<ImageGenerationBackground>(["auto", "opaque", "transparent"]);
+const imageGenerationOutputFormatValues = new Set<ImageGenerationOutputFormat>(["jpeg", "png", "webp"]);
+const imageGenerationQualityValues = new Set<ImageGenerationQuality>(["auto", "low", "medium", "high"]);
 
 export const defaultConfig: FroeConfig = {
   provider: "openai",
   autoUpdate: true,
   model: "gpt-5.6-terra",
   reasoning: "medium",
+  imageGeneration: {
+    enabled: true,
+    model: "gpt-image-2",
+    size: "auto",
+    quality: "auto",
+    background: "auto",
+    outputFormat: "png",
+  },
   compactThresholdTokens: 200_000,
   maxTurns: 40,
   logging: "metadata",
@@ -27,8 +51,9 @@ export const defaultConfig: FroeConfig = {
   mcpServers: {},
 };
 
-type ConfigLayer = Partial<Omit<FroeConfig, "limits" | "mcpServers">> & {
+type ConfigLayer = Partial<Omit<FroeConfig, "imageGeneration" | "limits" | "mcpServers">> & {
   $schema?: string;
+  imageGeneration?: Partial<ImageGenerationConfig>;
   limits?: Partial<Limits>;
   mcpServers?: Record<string, McpServerConfig>;
 };
@@ -88,6 +113,7 @@ export function mergeConfig(
 ): FroeConfig {
   const merged: FroeConfig = {
     ...base,
+    imageGeneration: { ...base.imageGeneration },
     limits: { ...base.limits },
     commandEnv: [...base.commandEnv],
     extraInstructions: [...base.extraInstructions],
@@ -102,6 +128,7 @@ export function mergeConfig(
     if ("baseURL" in layer && layer.baseURL !== undefined) merged.baseURL = layer.baseURL;
     if ("autoUpdate" in layer && layer.autoUpdate !== undefined) merged.autoUpdate = layer.autoUpdate;
     if (layer.reasoning !== undefined) merged.reasoning = layer.reasoning;
+    if ("imageGeneration" in layer && layer.imageGeneration !== undefined) Object.assign(merged.imageGeneration, layer.imageGeneration);
     if ("compactThresholdTokens" in layer && layer.compactThresholdTokens !== undefined) {
       merged.compactThresholdTokens = layer.compactThresholdTokens;
     }
@@ -140,9 +167,9 @@ async function readConfig(path: string, scope: "user" | "workspace"): Promise<Co
 
 function parseLayer(value: unknown, path: string, scope: "user" | "workspace"): ConfigLayer {
   const object = objectValue(value, path);
-  assertOnlyKeys(object, ["$schema", "provider", "baseURL", "autoUpdate", "model", "reasoning", "compactThresholdTokens", "maxTurns", "logging", "limits", "commandEnv", "extraInstructions", "mcpServers"], path);
+  assertOnlyKeys(object, ["$schema", "provider", "baseURL", "autoUpdate", "model", "reasoning", "imageGeneration", "compactThresholdTokens", "maxTurns", "logging", "limits", "commandEnv", "extraInstructions", "mcpServers"], path);
   if (scope === "workspace") {
-    const restricted = ["provider", "baseURL", "autoUpdate", "reasoning", "compactThresholdTokens", "maxTurns", "logging", "commandEnv", "extraInstructions", "mcpServers"].find((key) => object[key] !== undefined);
+    const restricted = ["provider", "baseURL", "autoUpdate", "reasoning", "imageGeneration", "compactThresholdTokens", "maxTurns", "logging", "commandEnv", "extraInstructions", "mcpServers"].find((key) => object[key] !== undefined);
     if (restricted !== undefined) throw new Error(`${path}.${restricted} is allowed only in user configuration`);
   }
   const layer: ConfigLayer = {};
@@ -159,6 +186,10 @@ function parseLayer(value: unknown, path: string, scope: "user" | "workspace"): 
     const reasoning = stringValue(object.reasoning, `${path}.reasoning`);
     if (!reasoningValues.has(reasoning as ReasoningEffort)) throw new Error(`${path}.reasoning is not supported`);
     layer.reasoning = reasoning as ReasoningEffort;
+  }
+  if (object.imageGeneration !== undefined) {
+    if (scope === "workspace") throw new Error(`${path}.imageGeneration is allowed only in user configuration`);
+    layer.imageGeneration = parseImageGeneration(object.imageGeneration, `${path}.imageGeneration`);
   }
   if (object.compactThresholdTokens !== undefined) {
     layer.compactThresholdTokens = object.compactThresholdTokens === null
@@ -200,6 +231,7 @@ function validateResolvedConfig(config: FroeConfig): void {
   booleanValue(config.autoUpdate, "autoUpdate");
   if (!config.model.trim()) throw new Error("model cannot be empty");
   if (!reasoningValues.has(config.reasoning)) throw new Error("reasoning is not supported");
+  validateImageGeneration(config.imageGeneration, "imageGeneration");
   if (config.compactThresholdTokens !== null) {
     positiveInteger(config.compactThresholdTokens, "compactThresholdTokens");
   }
@@ -209,6 +241,60 @@ function validateResolvedConfig(config: FroeConfig): void {
   }
   if (!Number.isSafeInteger(config.maxTurns) || config.maxTurns < 1) throw new Error("maxTurns must be a positive integer");
   parseMcpServers(config.mcpServers, "mcpServers");
+}
+
+function parseImageGeneration(value: unknown, path: string): Partial<ImageGenerationConfig> {
+  const settings = objectValue(value, path);
+  assertOnlyKeys(settings, ["enabled", "model", "size", "quality", "background", "outputFormat"], path);
+  const parsed: Partial<ImageGenerationConfig> = {};
+  if (settings.enabled !== undefined) parsed.enabled = booleanValue(settings.enabled, `${path}.enabled`);
+  if (settings.model !== undefined) parsed.model = stringValue(settings.model, `${path}.model`);
+  if (settings.size !== undefined) parsed.size = imageSizeValue(settings.size, `${path}.size`);
+  if (settings.quality !== undefined) parsed.quality = imageGenerationQualityValue(settings.quality, `${path}.quality`);
+  if (settings.background !== undefined) parsed.background = imageGenerationBackgroundValue(settings.background, `${path}.background`);
+  if (settings.outputFormat !== undefined) parsed.outputFormat = imageGenerationOutputFormatValue(settings.outputFormat, `${path}.outputFormat`);
+  return parsed;
+}
+
+function validateImageGeneration(settings: ImageGenerationConfig, path: string): void {
+  booleanValue(settings.enabled, `${path}.enabled`);
+  stringValue(settings.model, `${path}.model`);
+  imageSizeValue(settings.size, `${path}.size`);
+  imageGenerationQualityValue(settings.quality, `${path}.quality`);
+  imageGenerationBackgroundValue(settings.background, `${path}.background`);
+  imageGenerationOutputFormatValue(settings.outputFormat, `${path}.outputFormat`);
+  if (settings.background === "transparent" && settings.outputFormat === "jpeg") {
+    throw new Error(`${path}.outputFormat must be png or webp when ${path}.background is transparent`);
+  }
+  if (settings.background === "transparent" && (settings.model === "gpt-image-2" || settings.model === "gpt-image-2-2026-04-21")) {
+    throw new Error(`${path}.background transparent is not supported by ${settings.model}`);
+  }
+}
+
+function imageSizeValue(value: unknown, path: string): string {
+  const size = stringValue(value, path);
+  if (size !== "auto" && !/^[1-9]\d{1,3}x[1-9]\d{1,3}$/.test(size)) {
+    throw new Error(`${path} must be auto or a WIDTHxHEIGHT value`);
+  }
+  return size;
+}
+
+function imageGenerationQualityValue(value: unknown, path: string): ImageGenerationQuality {
+  const quality = stringValue(value, path);
+  if (!imageGenerationQualityValues.has(quality as ImageGenerationQuality)) throw new Error(`${path} is not supported`);
+  return quality as ImageGenerationQuality;
+}
+
+function imageGenerationBackgroundValue(value: unknown, path: string): ImageGenerationBackground {
+  const background = stringValue(value, path);
+  if (!imageGenerationBackgroundValues.has(background as ImageGenerationBackground)) throw new Error(`${path} is not supported`);
+  return background as ImageGenerationBackground;
+}
+
+function imageGenerationOutputFormatValue(value: unknown, path: string): ImageGenerationOutputFormat {
+  const outputFormat = stringValue(value, path);
+  if (!imageGenerationOutputFormatValues.has(outputFormat as ImageGenerationOutputFormat)) throw new Error(`${path} is not supported`);
+  return outputFormat as ImageGenerationOutputFormat;
 }
 
 function userConfigPath(): string {

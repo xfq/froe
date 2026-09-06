@@ -15,6 +15,19 @@
     "reasoning": {
       "enum": ["none", "low", "medium", "high", "xhigh", "max"]
     },
+    "imageGeneration": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Settings for OpenAI Responses API image generation. It is enabled by default and cannot be changed by workspace configuration. Froe disables it for a model after the API reports that the image-generation tool is unsupported.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "model": { "type": "string", "minLength": 1 },
+        "size": { "type": "string", "pattern": "^(auto|[1-9][0-9]{1,3}x[1-9][0-9]{1,3})$" },
+        "quality": { "enum": ["auto", "low", "medium", "high"] },
+        "background": { "enum": ["auto", "opaque", "transparent"] },
+        "outputFormat": { "enum": ["jpeg", "png", "webp"] }
+      }
+    },
     "compactThresholdTokens": {
       "type": ["integer", "null"],
       "minimum": 1,

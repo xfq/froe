@@ -63,3 +63,16 @@ test("an interactive terminal clears the waiting indicator when Froe responds", 
     "[7] \n",
   ].join(""));
 });
+
+test("the terminal reports a generated image without exposing its bytes", () => {
+  const output = new PassThrough();
+  let rendered = "";
+  output.on("data", (chunk: Buffer) => {
+    rendered += chunk.toString();
+  });
+  const renderer = createTerminalRenderer({ output, verbose: false, recordPath: undefined, conversationMode: false });
+
+  renderer.render({ type: "image_generated", path: "generated-images/froe-example.png", mediaType: "image/png", bytes: 42 });
+
+  assert.equal(rendered, "image saved: generated-images/froe-example.png (image/png, 42 bytes)\n");
+});

@@ -120,6 +120,43 @@ test("a run sends prompt images only with its first model turn", async () => {
   assert.equal(outcome.status, "completed");
 });
 
+test("a run persists generated images, reports safe metadata, and completes without another model turn", async () => {
+  const root = await mkdtemp(join(tmpdir(), "froe-run-"));
+  const model = new ScriptedModel([(turn) => {
+    assert.match(turn.system, /Image generation is enabled/);
+    return [{
+      type: "image_generated",
+      image: { data: Uint8Array.of(1, 2, 3), mediaType: "image/png" },
+    }];
+  }]);
+  const events: RunEvent[] = [];
+
+  const outcome = await runTask({
+    task: "Create a logo image",
+    model,
+    runtime: await runtime(root),
+    instructions: [],
+    modelName: "scripted",
+    imageGenerationEnabled: true,
+    maxTurns: 1,
+    emit: (event) => {
+      events.push(event);
+    },
+  });
+
+  assert.equal(outcome.status, "completed");
+  assert.equal(outcome.summary, "Generated and saved the requested image.");
+  assert.deepEqual(outcome.verification, [{ description: "Generated image was saved under generated-images/.", result: "passed" }]);
+  assert.equal(outcome.turns, 1);
+  const generated = events.find((event) => event.type === "image_generated");
+  assert.notEqual(generated, undefined);
+  if (generated === undefined || generated.type !== "image_generated") throw new Error("Expected a generated-image event");
+  assert.match(generated.path, /^generated-images\/froe-[0-9a-f-]+\.png$/);
+  assert.equal(generated.mediaType, "image/png");
+  assert.equal(generated.bytes, 3);
+  assert.deepEqual(await readFile(join(root, generated.path)), Buffer.from([1, 2, 3]));
+});
+
 test("a run emits context compaction metadata from the model provider", async () => {
   const root = await mkdtemp(join(tmpdir(), "froe-run-"));
   const model = new ScriptedModel([[
