@@ -420,6 +420,55 @@ nav a:hover,
   color: var(--chalk);
 }
 
+.page-copy {
+  margin-bottom: 1.5rem;
+}
+
+.page-copy-button {
+  min-height: 2.75rem;
+  padding-inline: 0.8rem;
+  border: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+
+.page-copy-button:hover {
+  border-color: var(--brass);
+}
+
+.page-copy-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.page-copy-status {
+  min-height: 1.5em;
+  margin: 0.5rem 0 0;
+  color: var(--brass-pale);
+  font-size: 0.85rem;
+}
+
+.page-copy label {
+  display: block;
+  margin-block: 0.75rem 0.4rem;
+}
+
+.page-copy textarea {
+  width: 100%;
+  min-height: 14rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--ink);
+  color: var(--chalk);
+  font: 0.85rem/1.5 var(--mono);
+  resize: vertical;
+}
+
+.page-copy textarea:focus-visible {
+  outline: 0.2rem solid var(--brass-pale);
+  outline-offset: 0.25rem;
+}
+
 .install-terminal pre {
   padding: clamp(1.4rem, 4vw, 2.5rem);
 }

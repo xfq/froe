@@ -126,6 +126,16 @@ pnpm build
 
 `pnpm smoke:openai` is an opt-in external integration check and requires real credentials.
 
+## Public website
+
+The static HTML pages in `site/` share `styles.css` and `script.js`, without a build
+step or runtime dependencies. The script handles install-command copying and
+serializes each page's `main` content into Markdown when the reader selects
+"Copy page". It preserves content structure and absolute links while excluding
+navigation, decorations, and copy controls. Clipboard writes run in the browser;
+if copying fails, a labeled, selectable text area exposes the Markdown for manual
+copying. Page content is neither sent to a conversion service nor persisted.
+
 ## Development evaluation harness
 
 The repository-local evaluation harness under [`evals/`](./evals/) and [`scripts/eval.ts`](./scripts/eval.ts) is development infrastructure and is not included in the published package.

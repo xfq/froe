@@ -11,6 +11,7 @@
     <title>Froe CLI command reference</title>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./styles.css">
+    <script src="./script.js" defer></script>
   </head>
   <body class="reference-page">
     <a class="skip-link" href="#main">Skip to main content</a>
@@ -43,6 +44,14 @@
         <div class="shell reference-hero-grid">
           <div class="reference-hero-copy">
             <h1>Froe CLI command reference</h1>
+            <div class="page-copy" data-copy-ui>
+              <button class="copy-button page-copy-button" type="button" data-copy-page hidden>Copy page</button>
+              <p class="page-copy-status" data-page-copy-status aria-live="polite"></p>
+              <div data-manual-copy hidden>
+                <label for="page-markdown">Page Markdown</label>
+                <textarea id="page-markdown" readonly spellcheck="false"></textarea>
+              </div>
+            </div>
             <p>
               Froe CLI is the terminal adapter over Froe core. This page covers terminal commands and options; agent runs, actions, and safety policy belong to the core.
             </p>

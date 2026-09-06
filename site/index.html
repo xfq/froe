@@ -44,6 +44,14 @@
         <div class="shell hero-grid">
           <div class="hero-copy">
             <h1>A coding agent<br><span>you can inspect.</span></h1>
+            <div class="page-copy" data-copy-ui>
+              <button class="copy-button page-copy-button" type="button" data-copy-page hidden>Copy page</button>
+              <p class="page-copy-status" data-page-copy-status aria-live="polite"></p>
+              <div data-manual-copy hidden>
+                <label for="page-markdown">Page Markdown</label>
+                <textarea id="page-markdown" readonly spellcheck="false"></textarea>
+              </div>
+            </div>
             <p class="hero-lede">
               Froe core owns the agent's runs, actions, and safety policy. Froe CLI brings that same behavior to the terminal.
             </p>
