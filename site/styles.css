@@ -1029,3 +1029,19 @@ kbd {
 .reference-section .usage-terminal + .release-list {
   margin-top: clamp(2.5rem, 5vw, 4rem);
 }
+
+.skill-example {
+  margin: 0;
+  padding: clamp(1.2rem, 3vw, 2rem);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.skill-example code {
+  padding: 0;
+}
+
+.reference-section .usage-terminal + .option-list {
+  margin-top: 3rem;
+}

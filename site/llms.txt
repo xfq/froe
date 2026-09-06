@@ -10,6 +10,7 @@ Froe CLI parses commands, renders events, and collects terminal input. Froe core
 - [Architecture](https://raw.githubusercontent.com/xfq/froe/main/ARCHITECTURE.md): Boundaries and responsibilities of Froe core, Froe CLI, and their internal modules.
 - [Configuration schema](https://raw.githubusercontent.com/xfq/froe/main/froe.config.schema.json): Machine-readable configuration keys and validation rules.
 - [Configuration reference](https://raw.githubusercontent.com/xfq/froe/main/site/configuration.html): Human-readable reference for configuration files, keys, precedence, and authority boundaries.
+- [Agent skills](https://raw.githubusercontent.com/xfq/froe/main/site/skills.html): What skills are, how to build them, and discovery paths.
 - [Changelog](https://raw.githubusercontent.com/xfq/froe/main/site/changelog.html): Release history for Froe CLI and Froe core.
 
 ## Optional

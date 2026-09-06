@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Learn what agent skills are, how to build a SKILL.md file, and how Froe discovers, loads, and uses skills."
+    >
+    <meta name="theme-color" content="#11100d">
+    <title>Agent skills | Froe</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body class="reference-page">
+    <a class="skip-link" href="#main">Skip to main content</a>
+
+    <header class="site-header">
+      <div class="shell header-inner">
+        <a class="brand" href="./index.html" aria-label="Froe home">
+          <svg class="brand-mark" viewBox="0 0 44 44" aria-hidden="true">
+            <path d="M4 8h24l12 14-12 14H4l12-14L4 8Z"></path>
+            <path d="M4 8 28 36"></path>
+          </svg>
+          <span>froe</span>
+        </a>
+
+        <nav aria-label="Primary">
+          <ul>
+            <li><a href="./index.html">Overview</a></li>
+            <li><a href="./commands.html">Commands</a></li>
+            <li><a href="./configuration.html">Configuration</a></li>
+            <li><a href="./skills.html" aria-current="page">Agent skills</a></li>
+            <li><a href="./changelog.html">Changelog</a></li>
+            <li><a href="https://github.com/xfq/froe">GitHub</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <section class="reference-hero" id="top">
+        <div class="shell reference-hero-grid">
+          <div class="reference-hero-copy">
+            <h1>Agent skills</h1>
+            <p>
+              Give Froe reusable instructions for the work you do often.
+            </p>
+            <div class="usage-terminal">
+              <span>A skill starts here</span>
+              <code>.agents/skills/test-review/SKILL.md</code>
+            </div>
+          </div>
+          <nav class="reference-index" aria-label="On this page">
+            <p>
+              On this page
+            </p>
+            <ol>
+              <li>
+                <a href="#what-are-skills">What skills are</a>
+              </li>
+              <li>
+                <a href="#build">Build a skill</a>
+              </li>
+              <li>
+                <a href="#discovery">Discovery and loading</a>
+              </li>
+              <li>
+                <a href="#verify">Test and troubleshoot</a>
+              </li>
+            </ol>
+          </nav>
+        </div>
+      </section>
+      <div class="shell reference-layout">
+        <aside class="reference-rail" aria-label="Guide sections">
+          <a href="#what-are-skills"><span>What skills are</span></a>
+          <a href="#build"><span>Build a skill</span></a>
+          <a href="#discovery"><span>Discovery and loading</span></a>
+          <a href="#verify"><span>Test and troubleshoot</span></a>
+        </aside>
+        <div class="reference-content">
+          <section class="reference-section" id="build">
+            <div class="reference-heading">
+              <h2>Start with one file.</h2>
+              <p>
+                Create .agents/skills/test-review/SKILL.md in your Workspace and copy the example below. No package installation or registration step is needed.
+              </p>
+            </div>
+            <div class="usage-terminal">
+              <span>SKILL.md — complete example</span><pre class="skill-example" tabindex="0" aria-label="Skill example"><code>---
+name: test-review
+description: Review automated tests for missing behavior coverage, brittle assertions, and failure cases. Use when the user asks to review tests or assess a test plan.
+---
+
+# Test review
+
+1. Read the project instructions and test configuration.
+2. Identify the behavior the changed code promises.
+3. Read the relevant tests and compare them with that behavior.
+4. Look for missing failure cases and assertions tied to internals.
+5. Run the relevant tests using the project's existing tooling.
+
+Report findings with file paths, the uncovered behavior, and a
+concrete suggested test. If tests cannot run, explain why.
+Do not edit files unless the user asks for changes.</code></pre>
+            </div>
+            <dl class="option-list">
+              <div>
+                <dt><code>name</code></dt>
+                <dd>
+                  Required. Use 1–64 lowercase letters, digits, or hyphens, with no leading, trailing, or consecutive hyphens. Match the directory name to the skill name for clarity.
+                </dd>
+              </div>
+              <div>
+                <dt><code>description</code></dt>
+                <dd>
+                  Required, non-empty, and at most 1,024 characters. Explain what the skill does and when to use it. Froe shows this description to the model before it reads the instructions.
+                </dd>
+              </div>
+              <div>
+                <dt>Markdown body</dt>
+                <dd>
+                  Write concrete steps, expected outputs, verification, and what to do if a prerequisite is missing. Keep the main workflow concise; point to supporting files when more detail is needed.
+                </dd>
+              </div>
+              <div>
+                <dt>Supporting files</dt>
+                <dd>
+                  Optionally add <code>references/</code>, <code>scripts/</code>, or <code>assets/</code> inside the skill directory. Reference them relative to <code>SKILL.md</code>, for example <code>references/testing.md</code>. They are not automatically loaded or executed.
+                </dd>
+              </div>
+              <div>
+                <dt>Optional frontmatter</dt>
+                <dd>
+                  Froe also parses <code>license</code>, <code>compatibility</code> (up to 500 characters), <code>metadata</code>, and <code>allowed-tools</code>. These fields are not included in its skill summary. <code>allowed-tools</code> is parsed metadata, not an enforced tool allowlist or a grant of permission.
+                </dd>
+              </div>
+            </dl>
+          </section>
+          <section class="reference-section" id="discovery">
+            <div class="reference-heading">
+              <h2>Put skills where Froe looks.</h2>
+              <p>
+                Froe discovers skills when a session starts. It scans immediate, non-hidden skill directories inside each root, reads their frontmatter, and keeps the first valid skill with each name.
+              </p>
+            </div>
+            <dl class="option-list">
+              <div>
+                <dt>Workspace roots</dt>
+                <dd>
+                  Scanned first, in this order: <code>.agents/skills</code>, <code>.froe/skills</code>, <code>.claude/skills</code>, <code>.codex/skills</code>, <code>.cursor/skills</code>, and <code>.github/skills</code>.
+                </dd>
+              </div>
+              <div>
+                <dt>Additional directories</dt>
+                <dd>
+                  Directories authorized with <code>--add-dir</code> are scanned next, using the same six subdirectories. They take precedence over user skills.
+                </dd>
+              </div>
+              <div>
+                <dt>User roots</dt>
+                <dd>
+                  Scanned last: <code>~/.agents/skills</code>, <code>~/.froe/skills</code>, <code>~/.claude/skills</code>, <code>~/.codex/skills</code>, and <code>~/.cursor/skills</code>. If <code>XDG_CONFIG_HOME</code> is explicitly set and non-empty, Froe also scans <code>$XDG_CONFIG_HOME/froe/skills</code>.
+                </dd>
+              </div>
+              <div>
+                <dt>Progressive loading</dt>
+                <dd>
+                  The model receives each discovered skill’s name, description, and file path. When a task matches the description, it is instructed to read the full <code>SKILL.md</code> with <code>read_file</code> before proceeding.
+                </dd>
+              </div>
+              <div>
+                <dt>Access boundaries</dt>
+                <dd>
+                  Froe adds discovered user skill directories to its additional directories for file access and command sandboxing, including read and write access. Install only skills you trust. Skill instructions and <code>allowed-tools</code> do not remove ordinary approval checks.
+                </dd>
+              </div>
+            </dl>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <div class="shell footer-inner">
+        <div class="footer-brand">
+          <svg class="brand-mark" viewBox="0 0 44 44" aria-hidden="true">
+            <path d="M4 8h24l12 14-12 14H4l12-14L4 8Z"></path>
+            <path d="M4 8 28 36"></path>
+          </svg>
+        </div>
+        <div class="footer-links">
+          <a href="./index.html">Overview</a>
+          <a href="./configuration.html">Configuration</a>
+          <a href="./skills.html">Agent skills</a>
+          <a href="./changelog.html">Changelog</a>
+          <a href="https://github.com/xfq/froe">GitHub</a>
+          <a href="https://github.com/xfq/froe-desktop">Froe Desktop</a>
+          <a href="https://github.com/xfq/froe/blob/main/README.md">Documentation</a>
+          <a href="https://github.com/xfq/froe/blob/main/LICENSE">Apache-2.0</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
