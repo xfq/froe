@@ -26,7 +26,7 @@ const imageGenerationQualityValues = new Set<ImageGenerationQuality>(["auto", "l
 export const defaultConfig: FroeConfig = {
   provider: "openai",
   autoUpdate: true,
-  model: "gpt-5.6-terra",
+  model: "gpt-6-astra",
   reasoning: "medium",
   imageGeneration: {
     enabled: true,

@@ -382,7 +382,7 @@ function printHelp(): void {
     "  -w, --workspace <path>  Workspace directory (default: current directory)",
     "      --add-dir <path>     Additional directory with read/write access (repeatable)",
     "      --base-url <url>     OpenAI-compatible API endpoint",
-    "  -m, --model <id>        OpenAI-compatible model (default: gpt-5.6-terra)",
+    "  -m, --model <id>        OpenAI-compatible model (default: gpt-6-astra)",
     "      --reasoning <level>  none, low, medium, high, xhigh, or max",
     "      --image <path>       Attach a PNG, JPEG, WEBP, or GIF to the first prompt (repeatable)",
     "  -c, --config <path>     Additional user-controlled JSON configuration",

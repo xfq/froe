@@ -6,7 +6,7 @@ if (!process.env.OPENAI_API_KEY) {
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 2 });
 const response = await client.responses.create({
-  model: "gpt-5.6-terra",
+  model: "gpt-6-astra",
   input: "Reply with exactly: froe smoke test passed",
   store: false,
 });

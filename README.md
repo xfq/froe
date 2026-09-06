@@ -45,7 +45,7 @@ Run Froe CLI without a task to keep working in the same terminal conversation. E
 
 ```text
 $ froe
-froe conversation · gpt-5.6-terra
+froe conversation · gpt-6-astra
 workspace: /path/to/your-project
 Send a follow-up after each run, or type /exit to leave.
 you: Fix the failing parser tests
@@ -111,7 +111,7 @@ Example user configuration:
   "$schema": "./froe.config.schema.json",
   "baseURL": "https://api.example.com/v1",
   "autoUpdate": true,
-  "model": "gpt-5.6-terra",
+  "model": "gpt-6-astra",
   "reasoning": "medium",
   "compactThresholdTokens": 200000,
   "maxTurns": 40,
