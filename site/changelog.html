@@ -60,6 +60,7 @@
           <nav class="reference-index" aria-label="On this page">
             <p>On this page</p>
             <ol>
+              <li><a href="#v0-5-0">0.5.0</a></li>
               <li><a href="#v0-4-0">0.4.0</a></li>
               <li><a href="#v0-3-0">0.3.0</a></li>
               <li><a href="#v0-2-1">0.2.1</a></li>
@@ -72,14 +73,74 @@
 
       <div class="shell reference-layout">
         <aside class="reference-rail" aria-label="Release versions">
-          <a href="#v0-4-0">01 <span>0.4.0</span></a>
-          <a href="#v0-3-0">02 <span>0.3.0</span></a>
-          <a href="#v0-2-1">03 <span>0.2.1</span></a>
-          <a href="#v0-2-0">04 <span>0.2.0</span></a>
-          <a href="#v0-1-0">05 <span>0.1.0</span></a>
+          <a href="#v0-5-0">01 <span>0.5.0</span></a>
+          <a href="#v0-4-0">02 <span>0.4.0</span></a>
+          <a href="#v0-3-0">03 <span>0.3.0</span></a>
+          <a href="#v0-2-1">04 <span>0.2.1</span></a>
+          <a href="#v0-2-0">05 <span>0.2.0</span></a>
+          <a href="#v0-1-0">06 <span>0.1.0</span></a>
         </aside>
 
         <div class="reference-content">
+          <section class="reference-section" id="v0-5-0">
+            <div class="reference-heading">
+              <h2>0.5.0</h2>
+              <p>
+                Published <time datetime="2026-09-06">September 6, 2026</time>
+                &middot; npm package <code>@xfq/froe</code>
+              </p>
+            </div>
+
+            <div class="usage-terminal" aria-label="Install Froe 0.5.0">
+              <span>Install</span>
+              <code>npm install --global @xfq/froe@0.5.0</code>
+            </div>
+
+            <div class="release-list">
+              <h3>New features</h3>
+              <ul>
+                <li>
+                  Image generation and editing through the OpenAI Responses
+                  API&rsquo;s built-in tool, enabled by default for explicit
+                  image requests. Generated files are saved without overwriting
+                  existing files under <code>generated-images/</code>, and the
+                  terminal reports each file&rsquo;s path, format, and size.
+                </li>
+                <li>
+                  User-only <code>imageGeneration</code> settings control
+                  whether the tool is enabled, its model, size, quality,
+                  background, and output format. Unsupported models are retried
+                  without the tool, which stays disabled for that model for the
+                  rest of the session.
+                </li>
+                <li>
+                  Froe core exposes image-generation configuration types and
+                  an <code>image_generated</code> run event. Image bytes are
+                  excluded from run records and saved conversation history.
+                </li>
+              </ul>
+            </div>
+
+            <div class="release-list">
+              <h3>Improvements</h3>
+              <ul>
+                <li>
+                  Interactive conversations group responses and action results
+                  under numbered turns, show a progress indicator while waiting,
+                  and use clearer spacing and indentation for terminal output.
+                </li>
+                <li>
+                  Multiline pastes in terminals supporting bracketed paste stay
+                  together as one message and wait for Enter before submission.
+                </li>
+                <li>
+                  The default model is now <code>gpt-6-astra</code>, replacing
+                  <code>gpt-5.6-terra</code>.
+                </li>
+              </ul>
+            </div>
+          </section>
+
           <section class="reference-section" id="v0-4-0">
             <div class="reference-heading">
               <h2>0.4.0</h2>
