@@ -54,6 +54,99 @@ test("terminal input accepts follow-ups and releases stdin between messages", as
   assert.deepEqual(await exit, { value: undefined, done: true });
 });
 
+test("terminal input preserves all lines delivered together as one task", async () => {
+  const input = new PassThrough();
+  const controller = new AbortController();
+  const messages = terminalMessages(input, new PassThrough(), controller.signal);
+  try {
+    const first = messages.next();
+    input.write("第一行任务\n\n  第二行约束\n第三行验收\n");
+    assert.deepEqual(await first, {
+      value: { type: "task", text: "第一行任务\n\n  第二行约束\n第三行验收" }, done: false,
+    });
+    assert.equal(input.listenerCount("data"), 0);
+  } finally {
+    controller.abort();
+    await messages.return(undefined);
+  }
+});
+
+test("terminal input buffers bracketed paste across chunks until Enter", async () => {
+  const input = Object.assign(new PassThrough(), {
+    isTTY: true,
+    isRaw: false,
+    setRawMode(mode: boolean): void { this.isRaw = mode; },
+  });
+  const output = Object.assign(new PassThrough(), { isTTY: true, columns: 80 });
+  const controller = new AbortController();
+  const messages = terminalMessages(input, output, controller.signal);
+  let submitted = false;
+  try {
+    const first = messages.next().then((result) => { submitted = true; return result; });
+    input.write("\u001b[20");
+    input.write("0~/exit\r\n\r\n  ");
+    const chinese = Buffer.from("中文约束");
+    input.write(chinese.subarray(0, 2));
+    input.write(chinese.subarray(2));
+    input.write("\r验收\u001b[201");
+    input.write("~");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(submitted, false);
+    input.write("\r");
+    assert.deepEqual(await first, {
+      value: { type: "task", text: "/exit\n\n  中文约束\n验收" }, done: false,
+    });
+    assert.equal(input.isRaw, false);
+    assert.equal(input.listenerCount("data"), 0);
+    const next = messages.next();
+    input.write("follow-up\r");
+    assert.deepEqual(await next, { value: { type: "task", text: "follow-up" }, done: false });
+  } finally {
+    controller.abort();
+    await messages.return(undefined);
+  }
+});
+
+test("terminal paste preserves the cursor suffix and does not dispatch multiline model commands", async () => {
+  const input = new PassThrough();
+  const controller = new AbortController();
+  const messages = terminalMessages(input, new PassThrough(), controller.signal);
+  try {
+    const next = messages.next();
+    input.write("/model tail\u001b[D\u001b[D\u001b[D\u001b[D");
+    input.write("\u001b[200~example\n  context\u001b[201~\r");
+    assert.deepEqual(await next, {
+      value: { type: "task", text: "/model example\n  contexttail" }, done: false,
+    });
+  } finally {
+    controller.abort();
+    await messages.return(undefined);
+  }
+});
+
+test("cancelling an incomplete paste restores terminal modes and releases stdin", async () => {
+  const input = Object.assign(new PassThrough(), {
+    isTTY: true,
+    isRaw: true,
+    setRawMode(mode: boolean): void { this.isRaw = mode; },
+  });
+  const output = Object.assign(new PassThrough(), { isTTY: true, columns: 80 });
+  let rendered = "";
+  output.on("data", (chunk: Buffer) => { rendered += chunk.toString(); });
+  const controller = new AbortController();
+  const messages = terminalMessages(input, output, controller.signal);
+  const next = messages.next();
+  input.write("\u001b[200~unfinished\ntext");
+  controller.abort();
+  assert.deepEqual(await next, { value: undefined, done: true });
+  assert.equal(input.isRaw, true);
+  assert.equal(input.listenerCount("data"), 0);
+  assert.equal(input.listenerCount("end"), 0);
+  assert.equal(input.listenerCount("error"), 0);
+  assert.ok(rendered.startsWith("\u001b[?2004h"));
+  assert.ok(rendered.endsWith("\u001b[?2004l"));
+});
+
 test("terminal input treats model selection as a control command", async () => {
   const input = new PassThrough();
   const output = new PassThrough();
