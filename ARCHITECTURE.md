@@ -46,7 +46,7 @@ The model sees seven local actions. Their JSON schemas and implementations live 
 | `read_file` | Reads bounded lines and bytes from one UTF-8 text file in an authorized directory. |
 | `search` | Performs literal, case-sensitive search with `rg`; falls back to a Node traversal if `rg` is unavailable or unusable. |
 | `web_search` | Sends a bounded query to Tavily's Search API and returns normalized title, URL, excerpt, and score fields. The adapter in [`src/tavily-web-search.ts`](./src/tavily-web-search.ts) receives a key resolved from Froe's private credential file or `TAVILY_API_KEY`. |
-| `apply_patch` | Creates, replaces, or deletes UTF-8 text files in authorized directories through exact-match changes. A batch validates before mutation and stages writes before replacement. |
+| `apply_patch` | Creates, replaces, or deletes UTF-8 text files in authorized directories through exact-match changes. A batch applies its changes in order, so one batch may change the same file more than once and a later change may match text an earlier one introduced; every change is validated before mutation and writes are staged before replacement. |
 | `run_command` | Runs one executable with an argument array through `CommandSandbox`, with an authorized-directory working directory, bounded output, and a timeout. On macOS the child receives a temporary `HOME` and can read only the Workspace, declared additional directories, temporary directory, system runtime, and resolved supported toolchains. It never invokes a shell implicitly. |
 | `finish` | Parses the model's proposed outcome; the run loop performs the final semantic checks. |
 

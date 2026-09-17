@@ -50,7 +50,7 @@ export const toolDefinitions: ToolDefinition[] = [
   },
   {
     name: "apply_patch",
-    description: "Apply an all-or-nothing batch of precise text replacements in authorized directories. Each oldText must occur exactly once. Use null oldText to create a file and null newText to delete a file.",
+    description: "Apply an all-or-nothing batch of precise text replacements in authorized directories. Each oldText must occur exactly once in the file's current contents; changes apply in order, so one batch may change the same file more than once and a later oldText may match text an earlier change introduced. Use null oldText to create a file and null newText to delete a file.",
     parameters: objectSchema({
       changes: {
         type: "array",
@@ -102,6 +102,16 @@ interface PatchChange {
   path: string;
   oldText: string | null;
   newText: string | null;
+}
+
+interface StagedFile {
+  /** The path text the model used when this file first appeared in the batch. */
+  display: string;
+  /** Canonical absolute path used for every filesystem operation. */
+  path: string;
+  original: string | null;
+  content: string | null;
+  mode?: number;
 }
 
 interface CommandAction {
@@ -380,51 +390,39 @@ export class ActionRuntime {
   }
 
   async applyPatch(changes: PatchChange[]): Promise<JsonValue> {
-    const paths = new Set<string>();
+    const staged = new Map<string, StagedFile>();
     for (const change of changes) {
-      if (paths.has(change.path)) throw new ActionError("duplicate_path", `A patch may only change ${change.path} once`);
-      paths.add(change.path);
-    }
-
-    const prepared: Array<{ change: PatchChange; path: string; content: string | null; original: string | null; mode?: number }> = [];
-    for (const change of changes) {
+      const candidate = await this.resolveCandidate(change.path);
       const exists = await this.pathExists(change.path);
-      if (change.oldText === null) {
-        if (change.newText === null) throw new ActionError("invalid_patch", `${change.path} cannot have both oldText and newText as null`);
-        if (exists) throw new ActionError("file_exists", `${change.path} already exists`);
-        prepared.push({ change, path: await this.resolveCandidate(change.path), content: change.newText, original: null });
-        continue;
+      const key = exists ? await this.resolveExisting(change.path) : candidate;
+      let file = staged.get(key);
+      if (file === undefined) {
+        if (!exists) {
+          if (change.oldText !== null) throw new ActionError("file_missing", `${change.path} does not exist`);
+          file = { display: change.path, path: key, original: null, content: null };
+        } else {
+          const fileStat = await stat(key);
+          if (!fileStat.isFile()) throw new ActionError("not_file", `${change.path} is not a file`);
+          const existing = await this.readText(key);
+          file = { display: change.path, path: key, original: existing.text, content: existing.text, mode: fileStat.mode };
+        }
+        staged.set(key, file);
       }
-      if (!exists) throw new ActionError("file_missing", `${change.path} does not exist`);
-      const path = await this.resolveExisting(change.path);
-      const fileStat = await stat(path);
-      if (!fileStat.isFile()) throw new ActionError("not_file", `${change.path} is not a file`);
-      const existing = await this.readText(path);
-      const occurrences = countOccurrences(existing.text, change.oldText);
-      if (occurrences !== 1) throw new ActionError("patch_mismatch", `${change.path} oldText must occur exactly once; found ${occurrences}`);
-      if (change.newText === null && existing.text !== change.oldText) {
-        throw new ActionError("delete_requires_full_match", `Deleting ${change.path} requires oldText to equal the full file`);
-      }
-      prepared.push({
-        change,
-        path,
-        content: change.newText === null ? null : existing.text.replace(change.oldText, change.newText),
-        original: existing.text,
-        mode: fileStat.mode,
-      });
+      file.content = applyChangeToContent(file.content, change);
     }
 
+    const changed = [...staged.values()].filter((file) => file.content !== file.original);
     const temporaryPaths = new Map<string, string>();
-    const applied: typeof prepared = [];
+    const applied: StagedFile[] = [];
     try {
-      for (const item of prepared) {
+      for (const item of changed) {
         if (item.content === null) continue;
         await mkdir(dirname(item.path), { recursive: true });
         const temporary = join(dirname(item.path), `.${basename(item.path)}.${randomUUID()}.froe-tmp`);
         temporaryPaths.set(item.path, temporary);
         await writeFile(temporary, item.content, item.mode === undefined ? undefined : { mode: item.mode });
       }
-      for (const item of prepared) {
+      for (const item of changed) {
         if (item.content === null) {
           await unlink(item.path);
           applied.push(item);
@@ -449,7 +447,7 @@ export class ActionRuntime {
     } finally {
       await Promise.all([...temporaryPaths.values()].map(async (path) => unlink(path).catch(() => undefined)));
     }
-    return { changed: changes.map((change) => ({ path: change.path, operation: change.oldText === null ? "created" : change.newText === null ? "deleted" : "replaced" })) };
+    return { changed: [...staged.values()].map((file) => ({ path: file.display, operation: patchOperation(file) })) };
   }
 
   async runCommand(command: CommandAction, request: ActionRequest, signal?: AbortSignal): Promise<JsonValue> {
@@ -709,6 +707,30 @@ function countOccurrences(text: string, needle: string): number {
     count += 1;
     index = found + needle.length;
   }
+}
+
+/** Applies one patch change to a file's current contents, which may already include earlier changes in the same batch. */
+function applyChangeToContent(content: string | null, change: PatchChange): string | null {
+  if (change.oldText === null) {
+    if (change.newText === null) throw new ActionError("invalid_patch", `${change.path} cannot have both oldText and newText as null`);
+    if (content !== null) throw new ActionError("file_exists", `${change.path} already exists`);
+    return change.newText;
+  }
+  if (content === null) throw new ActionError("file_missing", `${change.path} does not exist`);
+  const occurrences = countOccurrences(content, change.oldText);
+  if (occurrences !== 1) throw new ActionError("patch_mismatch", `${change.path} oldText must occur exactly once in the file's current contents; found ${occurrences}`);
+  if (change.newText === null) {
+    if (content !== change.oldText) throw new ActionError("delete_requires_full_match", `Deleting ${change.path} requires oldText to equal the file's current contents`);
+    return null;
+  }
+  return content.replace(change.oldText, change.newText);
+}
+
+/** Describes the net effect of every change a batch requested for one file. */
+function patchOperation(file: StagedFile): string {
+  if (file.content === file.original) return "unchanged";
+  if (file.original === null) return "created";
+  return file.content === null ? "deleted" : "replaced";
 }
 
 function argumentObject(value: unknown): Record<string, unknown> {

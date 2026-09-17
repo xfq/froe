@@ -56,7 +56,23 @@ function output(result: ActionResult): Record<string, unknown> {
   return result.output as Record<string, unknown>;
 }
 
-test("patch preflight leaves every file untouched when one replacement does not match", async () => {
+test("one batch may change the same file more than once, in order", async () => {
+  const root = await workspace();
+  const target = join(root, "sample.txt");
+  await writeFile(target, "first\nsecond\nthird\n");
+  const result = await (await runtime(root)).execute(action("apply_patch", {
+    changes: [
+      { path: "sample.txt", oldText: "first\n", newText: "FIRST\n" },
+      { path: "sample.txt", oldText: "third", newText: "THIRD" },
+      { path: "sample.txt", oldText: "FIRST\nsecond", newText: "FIRST\nsecond-updated" },
+    ],
+  }));
+
+  assert.deepEqual(output(result).changed, [{ path: "sample.txt", operation: "replaced" }]);
+  assert.equal(await readFile(target, "utf8"), "FIRST\nsecond-updated\nTHIRD\n");
+});
+
+test("patch preflight leaves a file untouched when a later change to it does not match", async () => {
   const root = await workspace();
   const target = join(root, "sample.txt");
   await writeFile(target, "first\nsecond\n");
@@ -68,8 +84,49 @@ test("patch preflight leaves every file untouched when one replacement does not 
   }));
 
   assert.equal(result.ok, false);
-  assert.deepEqual(result.output, { code: "duplicate_path", message: "A patch may only change sample.txt once" });
+  assert.deepEqual(result.output, {
+    code: "patch_mismatch",
+    message: "sample.txt oldText must occur exactly once in the file's current contents; found 0",
+  });
   assert.equal(await readFile(target, "utf8"), "first\nsecond\n");
+});
+
+test("patch paths that name one file resolve to a single change set", async () => {
+  const root = await workspace();
+  const result = await (await runtime(root)).execute(action("apply_patch", {
+    changes: [
+      { path: "notes/new.txt", oldText: null, newText: "draft\n" },
+      { path: "./notes/new.txt", oldText: "draft", newText: "final" },
+    ],
+  }));
+
+  assert.deepEqual(output(result).changed, [{ path: "notes/new.txt", operation: "created" }]);
+  assert.equal(await readFile(join(root, "notes/new.txt"), "utf8"), "final\n");
+});
+
+test("a batch reports the net effect of create, replace, and delete changes", async () => {
+  const root = await workspace();
+  await writeFile(join(root, "recreated.txt"), "old\n");
+  await writeFile(join(root, "removed.txt"), "value\n");
+  const result = await (await runtime(root)).execute(action("apply_patch", {
+    changes: [
+      { path: "scratch.txt", oldText: null, newText: "temporary\n" },
+      { path: "scratch.txt", oldText: "temporary\n", newText: null },
+      { path: "recreated.txt", oldText: "old\n", newText: null },
+      { path: "recreated.txt", oldText: null, newText: "new\n" },
+      { path: "removed.txt", oldText: "value\n", newText: "value-updated\n" },
+      { path: "removed.txt", oldText: "value-updated\n", newText: null },
+    ],
+  }));
+
+  assert.deepEqual(output(result).changed, [
+    { path: "scratch.txt", operation: "unchanged" },
+    { path: "recreated.txt", operation: "replaced" },
+    { path: "removed.txt", operation: "deleted" },
+  ]);
+  await assert.rejects(readFile(join(root, "scratch.txt"), "utf8"));
+  assert.equal(await readFile(join(root, "recreated.txt"), "utf8"), "new\n");
+  await assert.rejects(readFile(join(root, "removed.txt"), "utf8"));
 });
 
 test("patch mismatch is atomic across distinct files", async () => {
