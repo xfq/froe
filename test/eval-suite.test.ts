@@ -8,6 +8,7 @@ import test from "node:test";
 import {
   findTask,
   gradeWorkspace,
+  hermeticGitEnvironment,
   loadSuite,
   prepareWorkspace,
   runAgent,
@@ -38,10 +39,10 @@ test("prepare creates a one-commit workspace without the source remote or later 
   await git(source, "config", "user.email", "test@example.invalid");
   await writeFile(join(source, "state.txt"), "seed\n", "utf8");
   await git(source, "add", "state.txt");
-  await git(source, "commit", "--quiet", "-m", "seed");
+  await git(source, "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "seed");
   const seed = (await git(source, "rev-parse", "HEAD")).trim();
   await writeFile(join(source, "state.txt"), "later answer\n", "utf8");
-  await git(source, "commit", "--quiet", "-am", "answer");
+  await git(source, "-c", "commit.gpgsign=false", "commit", "--quiet", "-am", "answer");
 
   const task = taskWithChecks(seed, []);
   const suite = suiteFor(source, task, join(root, "suite.json"));
@@ -67,7 +68,7 @@ test("grading uses the final screen declaration, tracks scope, and leaves manual
     "utf8",
   );
   await git(workspace, "add", "-A");
-  await git(workspace, "commit", "--quiet", "-m", "seed");
+  await git(workspace, "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "seed");
   await git(workspace, "update-ref", "refs/eval/baseline", "HEAD");
   await writeFile(
     join(workspace, "style/article.css"),
@@ -119,7 +120,7 @@ test("grading uses the final screen declaration, tracks scope, and leaves manual
   assert.equal(complete.overall.percent, 100);
 
   await git(workspace, "add", "style/article.css");
-  await git(workspace, "commit", "--quiet", "-m", "agent committed the fix");
+  await git(workspace, "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "agent committed the fix");
   const committed = await gradeWorkspace({ suite, task, workspace });
   assert.equal(committed.checks.find((check) => check.id === "scope")?.status, "passed");
 });
@@ -167,6 +168,6 @@ function taskWithChecks(seed: string, checks: EvalTask["checks"]): EvalTask {
 }
 
 async function git(cwd: string, ...args: string[]): Promise<string> {
-  const result = await execFileAsync("git", args, { cwd, encoding: "utf8" });
+  const result = await execFileAsync("git", args, { cwd, encoding: "utf8", env: hermeticGitEnvironment });
   return result.stdout;
 }

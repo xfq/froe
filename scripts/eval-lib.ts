@@ -140,6 +140,19 @@ interface CssRule {
   atRules: string[];
 }
 
+/**
+ * Environment for harness-owned Git calls. A developer's global configuration
+ * must not decide whether an automated run can commit: commit signing can block
+ * on a passphrase prompt, so harness Git calls ignore global and system config
+ * and commit without signing.
+ */
+export const hermeticGitEnvironment: NodeJS.ProcessEnv = {
+  ...process.env,
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_CONFIG_SYSTEM: "/dev/null",
+  GIT_CONFIG_NOSYSTEM: "1",
+};
+
 export async function loadSuite(suitePath: string): Promise<EvalSuite> {
   const sourcePath = resolve(suitePath);
   const parsed: unknown = JSON.parse(await readFile(sourcePath, "utf8"));
@@ -197,36 +210,32 @@ export async function prepareWorkspace(options: {
   await mkdir(dirname(cache), { recursive: true });
 
   if (await pathExists(cache)) {
-    await requireProcess(
-      "git",
+    await gitProcess(
       ["--git-dir", cache, "fetch", "origin"],
       dirname(options.suite.sourcePath),
     );
   } else {
-    await requireProcess(
-      "git",
+    await gitProcess(
       ["clone", "--mirror", options.suite.repository.url, cache],
       dirname(options.suite.sourcePath),
     );
   }
 
-  await requireProcess(
-    "git",
+  await gitProcess(
     ["--git-dir", cache, "cat-file", "-e", `${options.task.seed}^{commit}`],
     dirname(options.suite.sourcePath),
   );
   await mkdir(workspace, { recursive: true });
   await archiveCommit(cache, options.task.seed, workspace);
-  await requireProcess("git", ["init", "--quiet", "--initial-branch=eval"], workspace);
-  await requireProcess("git", ["config", "user.name", "Evaluation Harness"], workspace);
-  await requireProcess("git", ["config", "user.email", "eval@example.invalid"], workspace);
-  await requireProcess("git", ["add", "-A"], workspace);
-  await requireProcess(
-    "git",
-    ["commit", "--quiet", "-m", `Evaluation seed ${options.task.id}`],
+  await gitProcess(["init", "--quiet", "--initial-branch=eval"], workspace);
+  await gitProcess(["config", "user.name", "Evaluation Harness"], workspace);
+  await gitProcess(["config", "user.email", "eval@example.invalid"], workspace);
+  await gitProcess(["add", "-A"], workspace);
+  await gitProcess(
+    ["-c", "commit.gpgsign=false", "commit", "--quiet", "-m", `Evaluation seed ${options.task.id}`],
     workspace,
   );
-  await requireProcess("git", ["update-ref", "refs/eval/baseline", "HEAD"], workspace);
+  await gitProcess(["update-ref", "refs/eval/baseline", "HEAD"], workspace);
   return workspace;
 }
 
@@ -535,13 +544,11 @@ async function matchingFiles(workspace: string, pathPattern: string): Promise<st
 }
 
 async function changedPaths(workspace: string): Promise<string[]> {
-  const baseline = await requireProcess(
-    "git",
+  const baseline = await gitProcess(
     ["diff", "--name-only", "refs/eval/baseline", "--"],
     workspace,
   );
-  const status = await requireProcess(
-    "git",
+  const status = await gitProcess(
     ["status", "--porcelain=v1", "--untracked-files=all"],
     workspace,
   );
@@ -558,6 +565,7 @@ async function archiveCommit(cache: string, seed: string, workspace: string): Pr
   await new Promise<void>((resolvePromise, reject) => {
     const archive = spawn("git", ["--git-dir", cache, "archive", "--format=tar", seed], {
       stdio: ["ignore", "pipe", "pipe"],
+      env: hermeticGitEnvironment,
     });
     const extract = spawn("tar", ["-x", "-C", workspace], {
       stdio: ["pipe", "ignore", "pipe"],
@@ -591,12 +599,22 @@ async function readWorkspaceFile(workspace: string, relativePath: string): Promi
   return readFile(canonicalPath, "utf8");
 }
 
-async function requireProcess(command: string, args: string[], cwd: string): Promise<ProcessResult> {
-  const result = await runProcess(command, args, cwd, false);
+async function requireProcess(
+  command: string,
+  args: string[],
+  cwd: string,
+  env?: NodeJS.ProcessEnv,
+): Promise<ProcessResult> {
+  const result = await runProcess(command, args, cwd, false, env);
   if (result.exitCode !== 0) {
     throw new Error(`${command} ${args.join(" ")} failed (${result.exitCode}): ${result.stderr.trim()}`);
   }
   return result;
+}
+
+/** Runs one harness-owned Git command with the hermetic Git environment. */
+async function gitProcess(args: string[], cwd: string): Promise<ProcessResult> {
+  return requireProcess("git", args, cwd, hermeticGitEnvironment);
 }
 
 async function runProcess(
@@ -604,11 +622,13 @@ async function runProcess(
   args: string[],
   cwd: string,
   inherit: boolean,
+  env?: NodeJS.ProcessEnv,
 ): Promise<ProcessResult> {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(command, args, {
       cwd,
       stdio: inherit ? "inherit" : ["ignore", "pipe", "pipe"],
+      ...(env === undefined ? {} : { env }),
     });
     let stdout = "";
     let stderr = "";

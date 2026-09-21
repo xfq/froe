@@ -128,7 +128,7 @@ pnpm build
 
 ## Development evaluation harness
 
-The repository-local evaluation harness under [`evals/`](./evals/) and [`scripts/eval.ts`](./scripts/eval.ts) is development infrastructure and is not included in the published package.
+The repository-local evaluation harness under [`evals/`](./evals/) and [`scripts/eval.ts`](./scripts/eval.ts) is development infrastructure and is not included in the published package. Harness-owned Git commands ignore global and system Git configuration and commit without signing, so a developer's signing or credential setup cannot block or alter an automated run.
 
 ## Evolution rules
 
