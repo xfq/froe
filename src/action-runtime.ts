@@ -9,6 +9,13 @@ export type { ApprovalRequest } from "./types.js";
 
 const ignoredDirectories = new Set([".git", "node_modules", "dist", ".froe"]);
 const destructiveExecutables = new Set(["rm", "rmdir", "unlink", "shred", "mkfs", "dd", "sudo", "doas", "su"]);
+const shellExecutables = new Set(["sh", "bash", "dash", "zsh", "ksh", "mksh", "fish", "csh", "tcsh", "nu"]);
+const gitGlobalOptionsWithValue = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env"]);
+const gitGlobalFlags = new Set([
+  "-p", "-P", "--paginate", "--no-pager", "--no-replace-objects", "--no-optional-locks",
+  "--no-lazy-fetch", "--no-advice", "--bare", "--literal-pathspecs", "--glob-pathspecs",
+  "--noglob-pathspecs", "--icase-pathspecs", "--exec-path", "--version", "--help", "-h",
+]);
 const baseEnvironmentNames = ["PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "SHELL"];
 const maximumSandboxRetries = 3;
 
@@ -65,7 +72,7 @@ export const toolDefinitions: ToolDefinition[] = [
   },
   {
     name: "run_command",
-    description: "Run one executable with an argument array, never through an implicit shell. On macOS, commands automatically run without network access and may write only to authorized directories and the temporary directory; an OS-denied capability requires user approval before a narrow retry.",
+    description: "Run one executable with an argument array, never through an implicit shell. Shell executables and known destructive commands require user approval before running. On macOS, commands automatically run without network access and may write only to authorized directories and the temporary directory; an OS-denied capability requires user approval before a narrow retry.",
     parameters: objectSchema({
       executable: requiredString("Program to execute."),
       args: { type: "array", items: { type: "string" } },
@@ -662,12 +669,116 @@ function parseFinishArgs(value: unknown): JsonValue {
 }
 
 function commandRisk(command: CommandAction): { requiresApproval: boolean; destructive: boolean; reason?: string } {
-  const executable = basename(command.executable);
-  if (destructiveExecutables.has(executable)) return { requiresApproval: true, destructive: true, reason: `${executable} is potentially destructive.` };
-  if (executable === "git" && ["reset", "clean", "restore", "checkout"].includes(command.args[0] ?? "")) {
-    return { requiresApproval: true, destructive: true, reason: `git ${command.args[0]} can discard workspace changes.` };
+  return commandRiskFor(command.executable, command.args, 0);
+}
+
+function commandRiskFor(
+  executablePath: string,
+  args: string[],
+  wrapperDepth: number,
+): { requiresApproval: boolean; destructive: boolean; reason?: string } {
+  const executable = basename(executablePath).toLowerCase().replace(/\.exe$/, "");
+  if (wrapperDepth > 8) return destructiveCommandRisk("Nested command wrappers require review.");
+  if (destructiveExecutables.has(executable)) return destructiveCommandRisk(`${executable} is potentially destructive.`);
+  if (shellExecutables.has(executable)) {
+    return destructiveCommandRisk(`Running ${executable} can hide destructive commands.`);
+  }
+  if (executable === "env") {
+    const nested = commandFromEnv(args);
+    if (nested.kind === "uncertain") return destructiveCommandRisk("The env invocation obscures which command will run.");
+    if (nested.kind === "command") return commandRiskFor(nested.executable, nested.args, wrapperDepth + 1);
+  }
+  if (executable === "busybox" && args[0] !== undefined) {
+    return commandRiskFor(args[0], args.slice(1), wrapperDepth + 1);
+  }
+  if (executable === "git") {
+    const subcommand = gitSubcommand(args);
+    if (subcommand.kind === "uncertain") {
+      return destructiveCommandRisk("Git global options make the subcommand unclear.");
+    }
+    if (subcommand.kind === "command" && ["reset", "clean", "restore", "checkout"].includes(subcommand.name)) {
+      return destructiveCommandRisk(`git ${subcommand.name} can discard workspace changes.`);
+    }
   }
   return { requiresApproval: false, destructive: false };
+}
+
+type NestedCommand =
+  | { kind: "none" }
+  | { kind: "command"; executable: string; args: string[] }
+  | { kind: "uncertain" };
+
+function commandFromEnv(args: string[]): NestedCommand {
+  let index = 0;
+  while (index < args.length) {
+    const argument = args[index];
+    if (argument === undefined) return { kind: "none" };
+    if (argument === "--") {
+      const executable = args[index + 1];
+      return executable === undefined
+        ? { kind: "none" }
+        : { kind: "command", executable, args: args.slice(index + 2) };
+    }
+    if (argument === "-i" || argument === "--ignore-environment" || argument === "-0") {
+      index += 1;
+      continue;
+    }
+    if (argument === "-u" || argument === "--unset" || argument === "-C" || argument === "--chdir") {
+      if (args[index + 1] === undefined) return { kind: "uncertain" };
+      index += 2;
+      continue;
+    }
+    if (argument.startsWith("--unset=") || argument.startsWith("--chdir=")) {
+      index += 1;
+      continue;
+    }
+    if (argument === "-S" || argument === "--split-string" || (argument.startsWith("-") && argument !== "-")) {
+      return { kind: "uncertain" };
+    }
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(argument)) {
+      index += 1;
+      continue;
+    }
+    return { kind: "command", executable: argument, args: args.slice(index + 1) };
+  }
+  return { kind: "none" };
+}
+
+type GitSubcommand =
+  | { kind: "none" }
+  | { kind: "command"; name: string }
+  | { kind: "uncertain" };
+
+function gitSubcommand(args: string[]): GitSubcommand {
+  let index = 0;
+  while (index < args.length) {
+    const argument = args[index];
+    if (argument === undefined) return { kind: "none" };
+    if (gitGlobalOptionsWithValue.has(argument)) {
+      if (args[index + 1] === undefined) return { kind: "uncertain" };
+      index += 2;
+      continue;
+    }
+    if (["--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env"].some((option) => argument.startsWith(`${option}=`))) {
+      index += 1;
+      continue;
+    }
+    if ((argument.startsWith("-C") || argument.startsWith("-c")) && argument.length > 2) {
+      index += 1;
+      continue;
+    }
+    if (gitGlobalFlags.has(argument)) {
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith("-")) return { kind: "uncertain" };
+    return { kind: "command", name: argument };
+  }
+  return { kind: "none" };
+}
+
+function destructiveCommandRisk(reason: string): { requiresApproval: true; destructive: true; reason: string } {
+  return { requiresApproval: true, destructive: true, reason };
 }
 
 function newSandboxExceptions(current: SandboxException[], proposed: SandboxException[]): SandboxException[] {

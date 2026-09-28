@@ -296,6 +296,100 @@ test("commands strip provider keys and pass timeout behavior through the sandbox
   }
 });
 
+test("commands hidden behind a shell are approval-gated before they run", async () => {
+  const root = await workspace();
+  const approval = new FixedApproval(false);
+  let sandboxCalls = 0;
+  const commandSandbox: CommandSandbox = {
+    async run(): Promise<SandboxedCommandResult> {
+      sandboxCalls += 1;
+      return { exitCode: 0, signal: null, timedOut: false, output: "", truncated: false };
+    },
+  };
+  const instance = await ActionRuntime.create(root, defaultConfig, approval, commandSandbox);
+
+  const result = await instance.execute(action("run_command", {
+    executable: "/bin/sh",
+    args: ["-c", "rm -rf important-data"],
+  }));
+
+  assert.equal(result.ok, false);
+  assert.equal((result.output as Record<string, unknown>).code, "approval_denied");
+  assert.equal(approval.requests.length, 1);
+  assert.equal(approval.requests[0]?.destructive, true);
+  assert.equal(sandboxCalls, 0);
+});
+
+test("Git destructive subcommands are approval-gated after global options", async () => {
+  const root = await workspace();
+  const approval = new FixedApproval(false);
+  let sandboxCalls = 0;
+  const commandSandbox: CommandSandbox = {
+    async run(): Promise<SandboxedCommandResult> {
+      sandboxCalls += 1;
+      return { exitCode: 0, signal: null, timedOut: false, output: "", truncated: false };
+    },
+  };
+  const instance = await ActionRuntime.create(root, defaultConfig, approval, commandSandbox);
+
+  const result = await instance.execute(action("run_command", {
+    executable: "git",
+    args: ["-C", root, "-c", "core.safecrlf=false", "reset", "--hard"],
+  }));
+
+  assert.equal(result.ok, false);
+  assert.equal((result.output as Record<string, unknown>).code, "approval_denied");
+  assert.equal(approval.requests.length, 1);
+  assert.equal(approval.requests[0]?.destructive, true);
+  assert.equal(sandboxCalls, 0);
+});
+
+test("Git read-only subcommands remain available after global options", async () => {
+  const root = await workspace();
+  const approval = new FixedApproval(false);
+  let sandboxCalls = 0;
+  const commandSandbox: CommandSandbox = {
+    async run(): Promise<SandboxedCommandResult> {
+      sandboxCalls += 1;
+      return { exitCode: 0, signal: null, timedOut: false, output: "clean", truncated: false };
+    },
+  };
+  const instance = await ActionRuntime.create(root, defaultConfig, approval, commandSandbox);
+
+  const result = await instance.execute(action("run_command", {
+    executable: "git",
+    args: ["-C", root, "--no-pager", "status", "--short"],
+  }));
+
+  assert.equal(result.ok, true);
+  assert.equal(approval.requests.length, 0);
+  assert.equal(sandboxCalls, 1);
+});
+
+test("common command wrappers do not hide destructive executables", async () => {
+  const root = await workspace();
+  const approval = new FixedApproval(false);
+  let sandboxCalls = 0;
+  const commandSandbox: CommandSandbox = {
+    async run(): Promise<SandboxedCommandResult> {
+      sandboxCalls += 1;
+      return { exitCode: 0, signal: null, timedOut: false, output: "", truncated: false };
+    },
+  };
+  const instance = await ActionRuntime.create(root, defaultConfig, approval, commandSandbox);
+
+  const result = await instance.execute(action("run_command", {
+    executable: "env",
+    args: ["-u", "IGNORED", "rm", "-rf", "important-data"],
+  }));
+
+  assert.equal(result.ok, false);
+  assert.equal((result.output as Record<string, unknown>).code, "approval_denied");
+  assert.equal(approval.requests.length, 1);
+  assert.equal(approval.requests[0]?.destructive, true);
+  assert.equal(sandboxCalls, 0);
+});
+
 test("ordinary commands run first and an OS denial requests a narrow retry exception", async () => {
   const root = await workspace();
   const deniedPath = join(root, "approved-output.txt");

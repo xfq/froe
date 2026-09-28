@@ -47,14 +47,14 @@ The model sees seven local actions. Their JSON schemas and implementations live 
 | `search` | Performs literal, case-sensitive search with `rg`; falls back to a Node traversal if `rg` is unavailable or unusable. |
 | `web_search` | Sends a bounded query to Tavily's Search API and returns normalized title, URL, excerpt, and score fields. The adapter in [`src/tavily-web-search.ts`](./src/tavily-web-search.ts) receives a key resolved from Froe's private credential file or `TAVILY_API_KEY`. |
 | `apply_patch` | Creates, replaces, or deletes UTF-8 text files in authorized directories through exact-match changes. A batch applies its changes in order, so one batch may change the same file more than once and a later change may match text an earlier one introduced; every change is validated before mutation and writes are staged before replacement. |
-| `run_command` | Runs one executable with an argument array through `CommandSandbox`, with an authorized-directory working directory, bounded output, and a timeout. On macOS the child receives a temporary `HOME` and can read only the Workspace, declared additional directories, temporary directory, system runtime, and resolved supported toolchains. It never invokes a shell implicitly. |
+| `run_command` | Runs one executable with an argument array through `CommandSandbox`, with an authorized-directory working directory, bounded output, and a timeout. On macOS the child receives a temporary `HOME` and can read only the Workspace, declared additional directories, temporary directory, system runtime, and resolved supported toolchains. It never invokes a shell implicitly; explicit shell executables require approval. |
 | `finish` | Parses the model's proposed outcome; the run loop performs the final semantic checks. |
 
 ### Approval boundary
 
 Read-only file actions, `web_search`, and `finish` do not require approval. `web_search` sends its query to Tavily and may consume API credits. Its action summary and metadata record do not retain the query or search response. Deletion through `apply_patch` is always classified as destructive.
 
-Known destructive executables and Git subcommands that can discard changes require destructive approval before execution. Other commands run automatically inside the command sandbox. Deletion through `apply_patch` remains independently approval-gated.
+Known destructive executables and Git subcommands that can discard changes require destructive approval before execution. Git global options are skipped before classifying its subcommand, and `env` or BusyBox wrappers are inspected for the command they launch. Explicit shell executables require approval because they can hide destructive commands. Other commands run automatically inside the command sandbox. Deletion through `apply_patch` remains independently approval-gated.
 
 ### MCP tools
 
