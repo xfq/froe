@@ -60,6 +60,7 @@
           <nav class="reference-index" aria-label="On this page">
             <p>On this page</p>
             <ol>
+              <li><a href="#v0-6-0">0.6.0</a></li>
               <li><a href="#v0-5-0">0.5.0</a></li>
               <li><a href="#v0-4-0">0.4.0</a></li>
               <li><a href="#v0-3-0">0.3.0</a></li>
@@ -73,15 +74,73 @@
 
       <div class="shell reference-layout">
         <aside class="reference-rail" aria-label="Release versions">
-          <a href="#v0-5-0">01 <span>0.5.0</span></a>
-          <a href="#v0-4-0">02 <span>0.4.0</span></a>
-          <a href="#v0-3-0">03 <span>0.3.0</span></a>
-          <a href="#v0-2-1">04 <span>0.2.1</span></a>
-          <a href="#v0-2-0">05 <span>0.2.0</span></a>
-          <a href="#v0-1-0">06 <span>0.1.0</span></a>
+          <a href="#v0-6-0">01 <span>0.6.0</span></a>
+          <a href="#v0-5-0">02 <span>0.5.0</span></a>
+          <a href="#v0-4-0">03 <span>0.4.0</span></a>
+          <a href="#v0-3-0">04 <span>0.3.0</span></a>
+          <a href="#v0-2-1">05 <span>0.2.1</span></a>
+          <a href="#v0-2-0">06 <span>0.2.0</span></a>
+          <a href="#v0-1-0">07 <span>0.1.0</span></a>
         </aside>
 
         <div class="reference-content">
+          <section class="reference-section" id="v0-6-0">
+            <div class="reference-heading">
+              <h2>0.6.0</h2>
+              <p>
+                Published <time datetime="2026-10-12">October 12, 2026</time>
+                &middot; npm package <code>@xfq/froe</code>
+              </p>
+            </div>
+
+            <div class="usage-terminal" aria-label="Install Froe 0.6.0">
+              <span>Install</span>
+              <code>npm install --global @xfq/froe@0.6.0</code>
+            </div>
+
+            <div class="release-list">
+              <h3>Improvements</h3>
+              <ul>
+                <li>
+                  A single <code>apply_patch</code> batch can change the same
+                  file more than once. Changes apply in order, so later
+                  replacements can match text introduced earlier in the batch.
+                  All changes are validated before any file is modified, and
+                  the result reports the net effect for each file.
+                </li>
+                <li>
+                  Patch text can be empty: create empty files, remove matched
+                  text without deleting the file, or fill an empty file.
+                  <code>null</code> remains the create/delete sentinel, and
+                  deleting an empty file still requires approval.
+                </li>
+                <li>
+                  Valid UTF-8 text containing the replacement character
+                  <code>U+FFFD</code> can be read, searched, and patched. File
+                  actions preserve byte order marks and newline formats, while
+                  malformed UTF-8 and NUL-bearing binary files remain rejected.
+                </li>
+              </ul>
+            </div>
+
+            <div class="release-list">
+              <h3>Safety fixes</h3>
+              <ul>
+                <li>
+                  Explicit shell executables require approval before running,
+                  because they can hide destructive commands.
+                </li>
+                <li>
+                  Destructive command checks inspect Git subcommands after
+                  global options and commands launched through <code>env</code>
+                  or BusyBox wrappers. Unclear Git options, ambiguous
+                  <code>env</code> invocations, and deeply nested wrappers
+                  require approval.
+                </li>
+              </ul>
+            </div>
+          </section>
+
           <section class="reference-section" id="v0-5-0">
             <div class="reference-heading">
               <h2>0.5.0</h2>
