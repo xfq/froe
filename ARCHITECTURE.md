@@ -50,6 +50,8 @@ The model sees seven local actions. Their JSON schemas and implementations live 
 | `run_command` | Runs one executable with an argument array through `CommandSandbox`, with an authorized-directory working directory, bounded output, and a timeout. On macOS the child receives a temporary `HOME` and can read only the Workspace, declared additional directories, temporary directory, system runtime, and resolved supported toolchains. It never invokes a shell implicitly; explicit shell executables require approval. |
 | `finish` | Parses the model's proposed outcome; the run loop performs the final semantic checks. |
 
+Text file actions validate UTF-8 bytes before decoding, accepting literal U+FFFD characters and preserving any BOM and newline format; NUL-bearing files remain classified as binary. Patch text may be empty: an empty `newText` removes matched text while keeping the file, and an empty `oldText` matches only an empty file. `null` remains the create/delete sentinel, so deleting an empty file still requires approval.
+
 ### Approval boundary
 
 Read-only file actions, `web_search`, and `finish` do not require approval. `web_search` sends its query to Tavily and may consume API credits. Its action summary and metadata record do not retain the query or search response. Deletion through `apply_patch` is always classified as destructive.

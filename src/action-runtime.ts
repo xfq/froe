@@ -1,6 +1,7 @@
 import { access, lstat, mkdir, readdir, readFile, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
+import { isUtf8 } from "node:buffer";
 import { CommandSandboxError, type CommandSandbox, type SandboxException, type SandboxedCommandResult } from "./command-sandbox.js";
 import { TavilyWebSearch, TavilyWebSearchError, type WebSearch } from "./tavily-web-search.js";
 import type { ActionName, ActionRequest, ActionResult, ApprovalRequest, FroeConfig, GeneratedImage, GeneratedImageMediaType, JsonValue, ToolDefinition } from "./types.js";
@@ -57,7 +58,7 @@ export const toolDefinitions: ToolDefinition[] = [
   },
   {
     name: "apply_patch",
-    description: "Apply an all-or-nothing batch of precise text replacements in authorized directories. Each oldText must occur exactly once in the file's current contents; changes apply in order, so one batch may change the same file more than once and a later oldText may match text an earlier change introduced. Use null oldText to create a file and null newText to delete a file.",
+    description: "Apply an all-or-nothing batch of precise text replacements in authorized directories. Each oldText must occur exactly once in the file's current contents; changes apply in order, so one batch may change the same file more than once and a later oldText may match text an earlier change introduced. Empty strings are valid text; an empty oldText matches only an empty file. Use null oldText to create a file and null newText to delete a file.",
     parameters: objectSchema({
       changes: {
         type: "array",
@@ -545,8 +546,8 @@ export class ActionRuntime {
   async readText(path: string): Promise<{ text: string; newline: "\n" | "\r\n" }> {
     const buffer = await readFile(path);
     if (buffer.includes(0)) throw new ActionError("binary_file", `${this.toRelative(path)} appears to be binary`);
+    if (!isUtf8(buffer)) throw new ActionError("non_utf8", `${this.toRelative(path)} is not valid UTF-8 text`);
     const text = buffer.toString("utf8");
-    if (text.includes("\uFFFD")) throw new ActionError("non_utf8", `${this.toRelative(path)} is not valid UTF-8 text`);
     return { text, newline: text.includes("\r\n") ? "\r\n" : "\n" };
   }
 
@@ -809,7 +810,7 @@ function generatedImageExtension(mediaType: GeneratedImageMediaType): "jpeg" | "
 }
 
 function countOccurrences(text: string, needle: string): number {
-  if (needle === "") return 0;
+  if (needle === "") return text.length + 1;
   let count = 0;
   let index = 0;
   while (true) {
@@ -860,8 +861,8 @@ function optionalStringValue(value: unknown, name: string): string | undefined {
 }
 
 function nullableStringValue(value: unknown, name: string): string | null {
-  if (value === null) return null;
-  return requiredStringValue(value, name);
+  if (value === null || typeof value === "string") return value;
+  throw new ActionError("invalid_arguments", `${name} must be a string or null`);
 }
 
 function optionalPositiveInteger(value: unknown, name: string): number | undefined {

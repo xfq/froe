@@ -72,6 +72,128 @@ test("one batch may change the same file more than once, in order", async () => 
   assert.equal(await readFile(target, "utf8"), "FIRST\nsecond-updated\nTHIRD\n");
 });
 
+test("patches accept empty replacement text and can create empty files", async () => {
+  const root = await workspace();
+  await writeFile(join(root, "partial.txt"), "keep remove keep");
+  await writeFile(join(root, "cleared.txt"), "remove all");
+  const result = await (await runtime(root)).execute(action("apply_patch", {
+    changes: [
+      { path: "empty.txt", oldText: null, newText: "" },
+      { path: "partial.txt", oldText: "remove ", newText: "" },
+      { path: "cleared.txt", oldText: "remove all", newText: "" },
+    ],
+  }));
+
+  assert.deepEqual(output(result).changed, [
+    { path: "empty.txt", operation: "created" },
+    { path: "partial.txt", operation: "replaced" },
+    { path: "cleared.txt", operation: "replaced" },
+  ]);
+  assert.equal(await readFile(join(root, "empty.txt"), "utf8"), "");
+  assert.equal(await readFile(join(root, "partial.txt"), "utf8"), "keep keep");
+  assert.equal(await readFile(join(root, "cleared.txt"), "utf8"), "");
+});
+
+test("an empty oldText can fill an existing or newly created empty file", async () => {
+  const root = await workspace();
+  await writeFile(join(root, "existing.txt"), "");
+  const result = await (await runtime(root)).execute(action("apply_patch", {
+    changes: [
+      { path: "existing.txt", oldText: "", newText: "filled\n" },
+      { path: "created.txt", oldText: null, newText: "" },
+      { path: "created.txt", oldText: "", newText: "filled\n" },
+    ],
+  }));
+
+  assert.deepEqual(output(result).changed, [
+    { path: "existing.txt", operation: "replaced" },
+    { path: "created.txt", operation: "created" },
+  ]);
+  assert.equal(await readFile(join(root, "existing.txt"), "utf8"), "filled\n");
+  assert.equal(await readFile(join(root, "created.txt"), "utf8"), "filled\n");
+});
+
+test("an empty oldText cannot anchor a patch in non-empty text", async () => {
+  const root = await workspace();
+  const target = join(root, "sample.txt");
+  await writeFile(target, "abc");
+  const result = await (await runtime(root)).execute(action("apply_patch", {
+    changes: [{ path: "sample.txt", oldText: "", newText: "inserted" }],
+  }));
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.output, {
+    code: "patch_mismatch",
+    message: "sample.txt oldText must occur exactly once in the file's current contents; found 4",
+  });
+  assert.equal(await readFile(target, "utf8"), "abc");
+});
+
+test("deleting an empty file still requires destructive approval", async () => {
+  const root = await workspace();
+  const target = join(root, "empty.txt");
+  await writeFile(target, "");
+  const approval = new FixedApproval(false);
+  const instance = await ActionRuntime.create(root, defaultConfig, approval, new FallbackCommandSandbox());
+  const result = await instance.execute(action("apply_patch", {
+    changes: [{ path: "empty.txt", oldText: "", newText: null }],
+  }));
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.output, {
+    code: "approval_denied",
+    message: "Approval was denied: Deleting a workspace file requires approval.",
+  });
+  assert.equal(approval.requests.length, 1);
+  assert.equal(approval.requests[0]?.destructive, true);
+  assert.equal(await readFile(target, "utf8"), "");
+});
+
+test("UTF-8 replacement characters remain readable, searchable, and patchable with BOM and CRLF preserved", async () => {
+  const root = await workspace();
+  const target = join(root, "unicode.txt");
+  const content = "\uFEFFbefore \uFFFD\r\nsecond\r\n";
+  await writeFile(target, content);
+  const instance = await runtime(root);
+
+  const read = await instance.execute(action("read_file", { path: "unicode.txt" }));
+  assert.equal(output(read).text, content);
+
+  const search = await instance.execute(action("search", { query: "\uFFFD" }));
+  assert.deepEqual(output(search).results, [{ path: "unicode.txt", line: 1, text: "\uFEFFbefore \uFFFD" }]);
+
+  const patch = await instance.execute(action("apply_patch", {
+    changes: [{ path: "unicode.txt", oldText: "before \uFFFD", newText: "after \uFFFD" }],
+  }));
+  assert.deepEqual(output(patch).changed, [{ path: "unicode.txt", operation: "replaced" }]);
+  assert.deepEqual(await readFile(target), Buffer.from("\uFEFFafter \uFFFD\r\nsecond\r\n"));
+});
+
+test("file actions still reject malformed UTF-8 and NUL-bearing binary data", async () => {
+  const root = await workspace();
+  const instance = await runtime(root);
+  const fixtures = [
+    { name: "invalid.txt", bytes: Buffer.from([0xc3, 0x28]), code: "non_utf8" },
+    { name: "truncated.txt", bytes: Buffer.from([0xe2, 0x82]), code: "non_utf8" },
+    { name: "binary.txt", bytes: Buffer.from([0x61, 0x00, 0x62]), code: "binary_file" },
+  ];
+
+  for (const fixture of fixtures) {
+    const target = join(root, fixture.name);
+    await writeFile(target, fixture.bytes);
+    const read = await instance.execute(action("read_file", { path: fixture.name }));
+    assert.equal(read.ok, false);
+    assert.equal((read.output as Record<string, unknown>).code, fixture.code);
+
+    const patch = await instance.execute(action("apply_patch", {
+      changes: [{ path: fixture.name, oldText: "a", newText: "changed" }],
+    }));
+    assert.equal(patch.ok, false);
+    assert.equal((patch.output as Record<string, unknown>).code, fixture.code);
+    assert.deepEqual(await readFile(target), fixture.bytes);
+  }
+});
+
 test("patch preflight leaves a file untouched when a later change to it does not match", async () => {
   const root = await workspace();
   const target = join(root, "sample.txt");
