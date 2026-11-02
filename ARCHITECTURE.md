@@ -43,7 +43,7 @@ The model sees seven local actions. Their JSON schemas and implementations live 
 | Action | Behavior |
 | --- | --- |
 | `list_files` | Lists one directory level, sorted, while hiding symlinks and ignored directories. It accepts Workspace-relative paths or absolute paths beneath a declared additional directory. |
-| `read_file` | Reads bounded lines and bytes from one UTF-8 text file in an authorized directory. |
+| `read_file` | Reads bounded lines and bytes from one UTF-8 text file in an authorized directory; a line longer than the byte budget is returned as a UTF-8 prefix and flagged with `lineTruncated`. |
 | `search` | Performs literal, case-sensitive search with `rg`; falls back to a Node traversal if `rg` is unavailable or unusable. |
 | `web_search` | Sends a bounded query to Tavily's Search API and returns normalized title, URL, excerpt, and score fields. The adapter in [`src/tavily-web-search.ts`](./src/tavily-web-search.ts) receives a key resolved from Froe's private credential file or `TAVILY_API_KEY`. |
 | `apply_patch` | Creates, replaces, or deletes UTF-8 text files in authorized directories through exact-match changes. A batch applies its changes in order, so one batch may change the same file more than once and a later change may match text an earlier one introduced; every change is validated before mutation and writes are staged before replacement. |

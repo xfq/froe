@@ -44,6 +44,11 @@ async function runtime(root: string, approval = true, commandSandbox: CommandSan
   return ActionRuntime.create(root, defaultConfig, new FixedApproval(approval), commandSandbox);
 }
 
+async function runtimeWithReadBytes(root: string, readBytes: number): Promise<ActionRuntime> {
+  const config = { ...defaultConfig, limits: { ...defaultConfig.limits, readBytes } };
+  return ActionRuntime.create(root, config, new FixedApproval(true), new FallbackCommandSandbox());
+}
+
 function action(name: string, arguments_: unknown): ActionRequest {
   return { callId: "call_1", name, arguments: arguments_ };
 }
@@ -192,6 +197,49 @@ test("file actions still reject malformed UTF-8 and NUL-bearing binary data", as
     assert.equal((patch.output as Record<string, unknown>).code, fixture.code);
     assert.deepEqual(await readFile(target), fixture.bytes);
   }
+});
+
+test("a line longer than the read budget returns a non-empty prefix the caller can advance past", async () => {
+  const root = await workspace();
+  const longLine = "x".repeat(200 * 1024);
+  await writeFile(join(root, "bundle.js"), `${longLine}\ntail`);
+  const instance = await runtime(root);
+
+  const value = output(await instance.execute(action("read_file", { path: "bundle.js" })));
+  const text = value.text as string;
+  assert.equal(value.startLine, 1);
+  assert.equal(value.endLine, 1);
+  assert.equal(value.lineTruncated, true);
+  assert.equal(value.truncated, true);
+  assert.ok(text.length > 0);
+  assert.ok(Buffer.byteLength(text) <= defaultConfig.limits.readBytes);
+  assert.ok(longLine.startsWith(text));
+
+  const next = await instance.execute(action("read_file", { path: "bundle.js", startLine: 2 }));
+  assert.equal(output(next).text, "tail");
+});
+
+test("a clipped line ends on a code-point boundary within the byte budget", async () => {
+  const root = await workspace();
+  await writeFile(join(root, "unicode.txt"), "ab中文cd\n");
+  const instance = await runtimeWithReadBytes(root, 7);
+
+  const value = output(await instance.execute(action("read_file", { path: "unicode.txt" })));
+  assert.equal(value.text, "ab中");
+  assert.equal(value.lineTruncated, true);
+  assert.ok(Buffer.byteLength(value.text as string) <= 7);
+});
+
+test("a read budget below one code point still reports a coherent line range", async () => {
+  const root = await workspace();
+  await writeFile(join(root, "unicode.txt"), "中\n");
+  const instance = await runtimeWithReadBytes(root, 1);
+
+  const value = output(await instance.execute(action("read_file", { path: "unicode.txt" })));
+  assert.equal(value.text, "");
+  assert.equal(value.startLine, 1);
+  assert.equal(value.endLine, 1);
+  assert.equal(value.lineTruncated, true);
 });
 
 test("patch preflight leaves a file untouched when a later change to it does not match", async () => {

@@ -31,7 +31,7 @@ export const toolDefinitions: ToolDefinition[] = [
   },
   {
     name: "read_file",
-    description: "Read a UTF-8 text file by line range from an authorized directory. Read a file before patching it.",
+    description: "Read a UTF-8 text file by line range from an authorized directory. A line longer than the byte limit is returned as a prefix and reported with lineTruncated. Read a file before patching it.",
     parameters: objectSchema({
       path: requiredString("Workspace-relative file path or an absolute path in an additional authorized directory."),
       startLine: optionalInteger("First one-based line, defaults to 1."),
@@ -274,18 +274,29 @@ export class ActionRuntime {
     let selected = lines.slice(startLine - 1, endLine);
     let text = selected.join(content.newline);
     let truncated = endLine < lines.length;
+    let lineTruncated = false;
     if (Buffer.byteLength(text) > this.#config.limits.readBytes) {
       const clipped: string[] = [];
       let size = 0;
       for (const line of selected) {
-        const next = Buffer.byteLength(line + content.newline);
-        if (size + next > this.#config.limits.readBytes) break;
+        const separatorBytes = clipped.length === 0 ? 0 : Buffer.byteLength(content.newline);
+        const lineBytes = Buffer.byteLength(line);
+        if (size + separatorBytes + lineBytes > this.#config.limits.readBytes) {
+          // A single line larger than the byte budget is returned as a UTF-8
+          // prefix, so the caller still receives the start of the range
+          // instead of an empty window it cannot advance past.
+          if (clipped.length === 0) {
+            clipped.push(utf8Prefix(line, this.#config.limits.readBytes));
+            lineTruncated = true;
+          }
+          break;
+        }
         clipped.push(line);
-        size += next;
+        size += separatorBytes + lineBytes;
       }
       selected = clipped;
       text = selected.join(content.newline);
-      endLine = startLine + selected.length - 1;
+      endLine = Math.max(startLine, startLine + selected.length - 1);
       truncated = true;
     }
     return {
@@ -295,6 +306,7 @@ export class ActionRuntime {
       totalLines: lines.length,
       text,
       truncated,
+      ...(lineTruncated ? { lineTruncated: true } : {}),
     };
   }
 
@@ -819,6 +831,19 @@ function countOccurrences(text: string, needle: string): number {
     count += 1;
     index = found + needle.length;
   }
+}
+
+/** Returns the longest prefix of `text` that fits in `maxBytes` without splitting a UTF-8 code point. */
+function utf8Prefix(text: string, maxBytes: number): string {
+  let bytes = 0;
+  let end = 0;
+  for (const character of text) {
+    const size = Buffer.byteLength(character);
+    if (bytes + size > maxBytes) break;
+    bytes += size;
+    end += character.length;
+  }
+  return text.slice(0, end);
 }
 
 /** Applies one patch change to a file's current contents, which may already include earlier changes in the same batch. */
