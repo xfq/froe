@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   MacOSSeatbeltCommandSandbox,
+  isNestedSandboxDenial,
   waitForViolationEvents,
   type CommandInvocation,
   type SandboxViolation,
@@ -55,6 +56,13 @@ test("violation monitoring waits for an expected delayed event", async () => {
   publishViolation?.();
   await waiting;
   assert.deepEqual(violations, [{ operation: "file-read-data", target: "/tmp/outside.txt" }]);
+});
+
+test("nested-sandbox detection recognizes the operating system's refusals", () => {
+  assert.equal(isNestedSandboxDenial("sandbox-exec: sandbox_apply: Operation not permitted\n"), true);
+  assert.equal(isNestedSandboxDenial("log: Cannot run while sandboxed\n"), true);
+  assert.equal(isNestedSandboxDenial(""), false);
+  assert.equal(isNestedSandboxDenial("sandbox-exec: sandbox_apply: Invalid profile\n"), false);
 });
 
 test("macOS Seatbelt allows workspace and temporary writes and retries other writes with an exact exception", {

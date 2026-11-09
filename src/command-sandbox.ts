@@ -8,6 +8,9 @@ const sandboxExecutable = "/usr/bin/sandbox-exec";
 const logExecutable = "/usr/bin/log";
 const monitorReadyText = "Filtering the log data";
 const monitorStartupTimeoutMs = 2_000;
+const nestedSandboxProbeTimeoutMs = 2_000;
+const nestedSandboxDenials = [/sandbox_apply: Operation not permitted/, /Cannot run while sandboxed/];
+const nestedSandboxMessage = "Command execution is disabled because Froe is already running inside another sandbox and cannot apply its own Seatbelt profile. Run Froe from an unsandboxed environment.";
 const violationFlushMs = 150;
 const expectedViolationTimeoutMs = 1_000;
 const diagnosticBytes = 16 * 1024;
@@ -77,6 +80,7 @@ export class MacOSSeatbeltCommandSandbox implements CommandSandbox {
   readonly #workspace: string;
   readonly #temporaryDirectory: string;
   readonly #additionalDirectories: string[];
+  #nestedSandboxCheck?: Promise<string | undefined>;
 
   private constructor(workspace: string, temporaryDirectory: string, additionalDirectories: string[]) {
     this.#workspace = workspace;
@@ -95,6 +99,7 @@ export class MacOSSeatbeltCommandSandbox implements CommandSandbox {
   }
 
   async run(command: CommandInvocation, exceptions: SandboxException[] = []): Promise<SandboxedCommandResult> {
+    await this.#refuseNestedSandbox();
     const marker = `FROE_SANDBOX_${randomUUID().replaceAll("-", "")}`;
     const monitor = await startViolationMonitor(marker);
     const readRoots = await commandReadRoots(command, this.#workspace, this.#temporaryDirectory);
@@ -132,6 +137,19 @@ export class MacOSSeatbeltCommandSandbox implements CommandSandbox {
       ...(denial === undefined ? {} : { denial }),
     };
   }
+
+  /**
+   * Refuses to run while Froe itself is sandboxed: macOS will not let a
+   * sandboxed process apply another Seatbelt profile, and the unified-log
+   * monitor that reports denials refuses to start there as well. Checking
+   * first keeps the cause explicit instead of surfacing a monitor failure.
+   */
+  async #refuseNestedSandbox(): Promise<void> {
+    this.#nestedSandboxCheck ??= detectNestedSandbox();
+    const diagnostic = await this.#nestedSandboxCheck;
+    if (diagnostic === undefined) return;
+    throw new CommandSandboxError("command_sandbox_already_sandboxed", `${nestedSandboxMessage} (${diagnostic})`);
+  }
 }
 
 class UnavailableCommandSandbox implements CommandSandbox {
@@ -156,6 +174,29 @@ interface CapturedProcessResult {
 
 interface ViolationMonitor {
   finish(expectViolation?: boolean): Promise<SandboxViolation[]>;
+}
+
+/**
+ * Probes whether this process already runs inside a sandbox by asking
+ * sandbox-exec to apply a permissive profile to a trivial command. macOS
+ * refuses that with `sandbox_apply: Operation not permitted` when the caller
+ * is already sandboxed.
+ */
+async function detectNestedSandbox(): Promise<string | undefined> {
+  const probe = await captureProcess({
+    executable: sandboxExecutable,
+    args: ["-p", "(version 1)(allow default)", "/usr/bin/true"],
+    cwd: "/",
+    env: { PATH: "/usr/bin:/bin" },
+    timeoutMs: nestedSandboxProbeTimeoutMs,
+    maxOutputBytes: 4 * 1024,
+  });
+  return isNestedSandboxDenial(probe.diagnostics) ? probe.diagnostics.trim() : undefined;
+}
+
+/** Reports whether operating-system diagnostics show that this process is already sandboxed. */
+export function isNestedSandboxDenial(diagnostics: string): boolean {
+  return nestedSandboxDenials.some((pattern) => pattern.test(diagnostics));
 }
 
 async function startViolationMonitor(marker: string): Promise<ViolationMonitor> {
@@ -198,7 +239,9 @@ async function startViolationMonitor(marker: string): Promise<ViolationMonitor> 
   });
   monitor.once("close", (code) => {
     if (!stopping && monitorFailure === undefined) {
-      monitorFailure = new CommandSandboxError("command_sandbox_monitor_failed", `Seatbelt log monitor exited unexpectedly with code ${String(code)}.`);
+      monitorFailure = isNestedSandboxDenial(text)
+        ? new CommandSandboxError("command_sandbox_already_sandboxed", nestedSandboxMessage)
+        : new CommandSandboxError("command_sandbox_monitor_failed", `Seatbelt log monitor exited unexpectedly with code ${String(code)}.`);
     }
     if (!ready && monitorFailure !== undefined) rejectReady?.(monitorFailure);
   });
