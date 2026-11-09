@@ -77,6 +77,19 @@ test("one batch may change the same file more than once, in order", async () => 
   assert.equal(await readFile(target, "utf8"), "FIRST\nsecond-updated\nTHIRD\n");
 });
 
+test("replacement text is inserted literally, including dollar-sign sequences", async () => {
+  const root = await workspace();
+  const target = join(root, "script.sh");
+  const replacement = 'echo "$& $` $1 $$ ${HOME}" || echo $\'single\'';
+  await writeFile(target, "placeholder\n");
+  const result = await (await runtime(root)).execute(action("apply_patch", {
+    changes: [{ path: "script.sh", oldText: "placeholder", newText: replacement }],
+  }));
+
+  assert.deepEqual(output(result).changed, [{ path: "script.sh", operation: "replaced" }]);
+  assert.equal(await readFile(target, "utf8"), `${replacement}\n`);
+});
+
 test("patches accept empty replacement text and can create empty files", async () => {
   const root = await workspace();
   await writeFile(join(root, "partial.txt"), "keep remove keep");

@@ -860,7 +860,10 @@ function applyChangeToContent(content: string | null, change: PatchChange): stri
     if (content !== change.oldText) throw new ActionError("delete_requires_full_match", `Deleting ${change.path} requires oldText to equal the file's current contents`);
     return null;
   }
-  return content.replace(change.oldText, change.newText);
+  // A function replacement keeps dollar-sign sequences literal; a string
+  // replacement would expand `$&`, `` $` ``, `$'`, `$1`, and `$$`.
+  const replacement = change.newText;
+  return content.replace(change.oldText, () => replacement);
 }
 
 /** Describes the net effect of every change a batch requested for one file. */
