@@ -60,6 +60,7 @@
           <nav class="reference-index" aria-label="On this page">
             <p>On this page</p>
             <ol>
+              <li><a href="#v0-6-2">0.6.2</a></li>
               <li><a href="#v0-6-1">0.6.1</a></li>
               <li><a href="#v0-6-0">0.6.0</a></li>
               <li><a href="#v0-5-0">0.5.0</a></li>
@@ -75,17 +76,45 @@
 
       <div class="shell reference-layout">
         <aside class="reference-rail" aria-label="Release versions">
-          <a href="#v0-6-1">01 <span>0.6.1</span></a>
-          <a href="#v0-6-0">02 <span>0.6.0</span></a>
-          <a href="#v0-5-0">03 <span>0.5.0</span></a>
-          <a href="#v0-4-0">04 <span>0.4.0</span></a>
-          <a href="#v0-3-0">05 <span>0.3.0</span></a>
-          <a href="#v0-2-1">06 <span>0.2.1</span></a>
-          <a href="#v0-2-0">07 <span>0.2.0</span></a>
-          <a href="#v0-1-0">08 <span>0.1.0</span></a>
+          <a href="#v0-6-2">01 <span>0.6.2</span></a>
+          <a href="#v0-6-1">02 <span>0.6.1</span></a>
+          <a href="#v0-6-0">03 <span>0.6.0</span></a>
+          <a href="#v0-5-0">04 <span>0.5.0</span></a>
+          <a href="#v0-4-0">05 <span>0.4.0</span></a>
+          <a href="#v0-3-0">06 <span>0.3.0</span></a>
+          <a href="#v0-2-1">07 <span>0.2.1</span></a>
+          <a href="#v0-2-0">08 <span>0.2.0</span></a>
+          <a href="#v0-1-0">09 <span>0.1.0</span></a>
         </aside>
 
         <div class="reference-content">
+          <section class="reference-section" id="v0-6-2">
+            <div class="reference-heading">
+              <h2>0.6.2</h2>
+              <p>
+                Published <time datetime="2026-11-09">November 9, 2026</time>
+                &middot; npm package <code>@xfq/froe</code>
+              </p>
+            </div>
+
+            <div class="usage-terminal" aria-label="Install Froe 0.6.2">
+              <span>Install</span>
+              <code>npm install --global @xfq/froe@0.6.2</code>
+            </div>
+
+            <div class="release-list">
+              <h3>Fixes</h3>
+              <ul>
+                <li>
+                  <code>apply_patch</code> writes replacement text literally.
+                  Text containing dollar-sign sequences such as <code>$1</code>,
+                  <code>$&amp;</code>, or <code>$$</code> is inserted exactly as
+                  given instead of being expanded as a replacement pattern.
+                </li>
+              </ul>
+            </div>
+          </section>
+
           <section class="reference-section" id="v0-6-1">
             <div class="reference-heading">
               <h2>0.6.1</h2>

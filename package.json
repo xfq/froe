@@ -1,6 +1,6 @@
 {
   "name": "@xfq/froe",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "An inspectable coding agent for work in a codebase.",
   "private": false,
   "publishConfig": {
