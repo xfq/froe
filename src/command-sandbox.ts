@@ -6,11 +6,10 @@ import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "no
 
 const sandboxExecutable = "/usr/bin/sandbox-exec";
 const logExecutable = "/usr/bin/log";
-const loggerExecutable = "/usr/bin/logger";
 const monitorReadyText = "Filtering the log data";
 const monitorStartupTimeoutMs = 2_000;
 const monitorHandshakeTimeoutMs = 2_000;
-const monitorHandshakePollMs = 25;
+const monitorHandshakePollMs = 50;
 const nestedSandboxProbeTimeoutMs = 2_000;
 const nestedSandboxDenials = [/sandbox_apply: Operation not permitted/, /Cannot run while sandboxed/];
 const nestedSandboxMessage = "Command execution is disabled because Froe is already running inside another sandbox and cannot apply its own Seatbelt profile. Run Froe from an unsandboxed environment.";
@@ -92,7 +91,7 @@ export class MacOSSeatbeltCommandSandbox implements CommandSandbox {
   }
 
   static async create(workspace: string, temporaryDirectory = tmpdir(), additionalDirectories: string[] = []): Promise<MacOSSeatbeltCommandSandbox> {
-    await Promise.all([access(sandboxExecutable), access(logExecutable), access(loggerExecutable)]);
+    await Promise.all([access(sandboxExecutable), access(logExecutable)]);
     const [canonicalWorkspace, canonicalTemporaryDirectory, canonicalAdditionalDirectories] = await Promise.all([
       realpath(workspace),
       realpath(temporaryDirectory),
@@ -203,37 +202,55 @@ export function isNestedSandboxDenial(diagnostics: string): boolean {
 }
 
 /**
- * Proves that the live unified-log stream delivers events carrying this
- * execution's marker before the command starts. `log stream` announces that it
- * is filtering before the subscription is actually serving events, so a denial
- * raised immediately after the command starts can be lost; the caller would then
- * report an unexplained failure instead of the narrow retry exception. Publishing
- * a marker-bearing message and observing it closes that window, and failing here
- * keeps a monitor that cannot report denials from silently running commands.
+ * Proves that the live unified-log stream delivers this execution's events
+ * before the command starts. `log stream` announces that it is filtering before
+ * the subscription is actually serving events, so a denial raised immediately
+ * after the command starts can be lost; the caller would then report an
+ * unexplained failure instead of the narrow retry exception. The ready text is
+ * therefore not enough: this raises repeated sandbox denials carrying a
+ * handshake token and waits for the monitor to observe one, which closes the
+ * startup window. Failing here keeps a monitor that cannot report denials from
+ * silently running commands.
  */
-async function confirmMonitorDelivery(marker: string, handshake: string, received: () => string): Promise<void> {
-  await captureProcess({
-    executable: loggerExecutable,
-    args: [`${marker} ${handshake}`],
-    cwd: "/",
-    env: { PATH: "/usr/bin:/bin" },
-    timeoutMs: monitorHandshakeTimeoutMs,
-    maxOutputBytes: 4 * 1024,
-  });
+async function confirmMonitorDelivery(handshake: string, received: () => string): Promise<void> {
   const deadline = Date.now() + monitorHandshakeTimeoutMs;
   while (!received().includes(handshake)) {
     if (Date.now() >= deadline) {
       throw new CommandSandboxError("command_sandbox_monitor_failed", "Timed out while confirming that the Seatbelt log monitor receives sandbox events.");
     }
+    await raiseHandshakeDenial(handshake);
     await new Promise<void>((resolve) => setTimeout(resolve, monitorHandshakePollMs));
   }
 }
 
+/**
+ * Produces a kernel-authored denial event bearing the handshake token. Only a
+ * denial proves the delivery path used for real violations; a message published
+ * through another logging interface would not.
+ */
+async function raiseHandshakeDenial(handshake: string): Promise<void> {
+  const profile = [
+    "(version 1)",
+    "(allow default)",
+    `(deny file-write* (with message ${profileString(handshake)}))`,
+  ].join("\n");
+  const probePath = join(tmpdir(), `froe-sandbox-probe-${randomUUID()}`);
+  await captureProcess({
+    executable: sandboxExecutable,
+    args: ["-p", `${profile}\n`, "/usr/bin/touch", probePath],
+    cwd: "/",
+    env: { PATH: "/usr/bin:/bin" },
+    timeoutMs: monitorHandshakeTimeoutMs,
+    maxOutputBytes: 4 * 1024,
+  }).catch(() => undefined);
+}
+
 async function startViolationMonitor(marker: string): Promise<ViolationMonitor> {
+  const handshake = `FROE_SANDBOX_READY_${randomUUID().replaceAll("-", "")}`;
   const monitor = spawn(logExecutable, [
     "stream",
     "--style", "ndjson",
-    "--predicate", `eventMessage CONTAINS ${profileString(marker)}`,
+    "--predicate", `eventMessage CONTAINS ${profileString(marker)} OR eventMessage CONTAINS ${profileString(handshake)}`,
   ], { shell: false, stdio: ["ignore", "pipe", "pipe"] });
   let text = "";
   let ready = false;
@@ -277,7 +294,6 @@ async function startViolationMonitor(marker: string): Promise<ViolationMonitor> 
   });
 
   let startupTimer: NodeJS.Timeout | undefined;
-  const handshake = `FROE_SANDBOX_READY_${randomUUID().replaceAll("-", "")}`;
   try {
     await Promise.race([
       readyPromise,
@@ -285,7 +301,7 @@ async function startViolationMonitor(marker: string): Promise<ViolationMonitor> 
         startupTimer = setTimeout(() => reject(new CommandSandboxError("command_sandbox_monitor_failed", "Timed out while starting the Seatbelt log monitor.")), monitorStartupTimeoutMs);
       }),
     ]);
-    await confirmMonitorDelivery(marker, handshake, () => text);
+    await confirmMonitorDelivery(handshake, () => text);
   } catch (error) {
     monitor.kill("SIGTERM");
     await closePromise;
